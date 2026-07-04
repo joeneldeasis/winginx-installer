@@ -1,22 +1,16 @@
-name: Installer smoke test
+name: install-smoke
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      os:
+        description: GitHub-hosted Windows runner label
+        required: true
+        type: string
 
 jobs:
   install:
-    name: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - windows-2019
-          - windows-2022
-          - windows-2025
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ inputs.os }}
     timeout-minutes: 20
 
     steps:
@@ -89,7 +83,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: winginx-ci-logs-${{ matrix.os }}
+          name: winginx-ci-logs-${{ inputs.os }}
           path: |
             C:\winginx-ci\nginx\logs\
             C:\winginx-ci\php\logs\

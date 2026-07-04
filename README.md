@@ -1,8 +1,8 @@
 # winginx installer
 
-[![windows-2019](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml/badge.svg?job=windows-2019)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml)
-[![windows-2022](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml/badge.svg?job=windows-2022)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml)
-[![windows-2025](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml/badge.svg?job=windows-2025)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml)
+[![windows-2019](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2019.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2019.yml)
+[![windows-2022](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2022.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2022.yml)
+[![windows-2025](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2025.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2025.yml)
 
 `winginx` is a PowerShell-based Windows installer for `nginx` plus native Windows PHP FastCGI.
 
@@ -237,19 +237,19 @@ After installation:
 
 ## Continuous integration
 
-This repository includes a GitHub Actions workflow at [`.github/workflows/install-test.yml`](.github/workflows/install-test.yml).
+This repository runs the same installer smoke test on each Windows Server version through separate workflows:
 
-On push to `main`/`master`, pull requests, and manual runs, it runs the same smoke test on:
+- [`.github/workflows/windows-2019.yml`](.github/workflows/windows-2019.yml)
+- [`.github/workflows/windows-2022.yml`](.github/workflows/windows-2022.yml)
+- [`.github/workflows/windows-2025.yml`](.github/workflows/windows-2025.yml)
 
-- `windows-2019` (Windows Server 2019)
-- `windows-2022` (Windows Server 2022)
-- `windows-2025` (Windows Server 2025)
+Shared steps live in [`.github/workflows/install-smoke.yml`](.github/workflows/install-smoke.yml).
 
-Each matrix job:
+On push to `main`/`master`, pull requests, and manual runs, each workflow:
 
 1. Parses the PowerShell scripts for syntax errors
 2. Runs `install.ps1` under `C:\winginx-ci` on port `8080`
 3. Checks that `winginx-nginx` and `winginx-php` are running
 4. Requests `http://127.0.0.1:8080/` and expects `winginx ok` plus PHP `8.2`
 
-The badges at the top of this README show pass/fail status for each Windows Server version. The workflow fails if any Windows version fails.
+The badges at the top of this README show `windows-2019 | passing`, `windows-2022 | passing`, and `windows-2025 | passing` (or failing) for each OS.
