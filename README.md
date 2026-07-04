@@ -237,13 +237,17 @@ After installation:
 
 This repository includes a GitHub Actions workflow at [`.github/workflows/install-test.yml`](.github/workflows/install-test.yml).
 
-On push to `main`/`master`, pull requests, and manual runs, it:
+On push to `main`/`master`, pull requests, and manual runs, it runs the same smoke test on:
+
+- `windows-2019` (Windows Server 2019)
+- `windows-2022` (Windows Server 2022)
+- `windows-2025` (Windows Server 2025)
+
+Each matrix job:
 
 1. Parses the PowerShell scripts for syntax errors
-2. Runs `install.ps1` on `windows-latest` under `C:\winginx-ci` on port `8080`
+2. Runs `install.ps1` under `C:\winginx-ci` on port `8080`
 3. Checks that `winginx-nginx` and `winginx-php` are running
 4. Requests `http://127.0.0.1:8080/` and expects `winginx ok` plus PHP `8.2`
 
-The badge at the top of this README shows the latest workflow status (green for success, red for failure).
-
-The badge links to the Actions runs for this repository.
+The badge at the top of this README shows the latest workflow status (green for success, red for failure). The workflow fails if any Windows version fails.
