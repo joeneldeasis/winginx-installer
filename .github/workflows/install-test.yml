@@ -8,6 +8,7 @@ on:
 
 jobs:
   install:
+    name: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:

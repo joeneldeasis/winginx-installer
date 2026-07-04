@@ -1,6 +1,9 @@
 # winginx installer
 
 [![Installer smoke test](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml)
+[![windows-2019](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml/badge.svg?job=windows-2019)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml)
+[![windows-2022](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml/badge.svg?job=windows-2022)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml)
+[![windows-2025](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml/badge.svg?job=windows-2025)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/install-test.yml)
 
 `winginx` is a PowerShell-based Windows installer for `nginx` plus native Windows PHP FastCGI.
 
@@ -250,4 +253,4 @@ Each matrix job:
 3. Checks that `winginx-nginx` and `winginx-php` are running
 4. Requests `http://127.0.0.1:8080/` and expects `winginx ok` plus PHP `8.2`
 
-The badge at the top of this README shows the latest workflow status (green for success, red for failure). The workflow fails if any Windows version fails.
+The badges at the top of this README show overall workflow status and per-OS job status (green for success, red for failure). The workflow fails if any Windows version fails.
