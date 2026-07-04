@@ -1,5 +1,6 @@
 # winginx installer
 
+[![windows-latest](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-latest.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-latest.yml)
 [![windows-2019](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2019.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2019.yml)
 [![windows-2022](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2022.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2022.yml)
 [![windows-2025](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2025.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2025.yml)
@@ -239,6 +240,7 @@ After installation:
 
 This repository runs the same installer smoke test on each Windows Server version through separate workflows:
 
+- [`.github/workflows/windows-latest.yml`](.github/workflows/windows-latest.yml)
 - [`.github/workflows/windows-2019.yml`](.github/workflows/windows-2019.yml)
 - [`.github/workflows/windows-2022.yml`](.github/workflows/windows-2022.yml)
 - [`.github/workflows/windows-2025.yml`](.github/workflows/windows-2025.yml)
@@ -252,4 +254,4 @@ On push to `main`/`master`, pull requests, and manual runs, each workflow:
 3. Checks that `winginx-nginx` and `winginx-php` are running
 4. Requests `http://127.0.0.1:8080/` and expects `winginx ok` plus PHP `8.2`
 
-The badges at the top of this README show `windows-2019 | passing`, `windows-2022 | passing`, and `windows-2025 | passing` (or failing) for each OS.
+The badges at the top of this README show `windows-latest | passing`, `windows-2019 | passing`, `windows-2022 | passing`, and `windows-2025 | passing` (or failing) for each OS.
