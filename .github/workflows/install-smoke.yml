@@ -79,6 +79,31 @@ jobs:
             throw "Health page did not report PHP 8.2"
           }
 
+      - name: Verify PHP tooling
+        shell: powershell
+        run: |
+          $phpExe = 'C:\winginx-ci\php\php.exe'
+          $composerPhar = 'C:\winginx-ci\tools\composer\composer.phar'
+          $binDir = 'C:\winginx-ci\tools\bin'
+
+          if (-not (Test-Path $phpExe)) { throw "Missing $phpExe" }
+          if (-not (Test-Path $composerPhar)) { throw "Missing $composerPhar" }
+          if (-not (Test-Path "$binDir\composer.cmd")) { throw 'Missing composer.cmd' }
+          if (-not (Test-Path "$binDir\artisan.cmd")) { throw 'Missing artisan.cmd' }
+          if (-not (Test-Path 'C:\winginx-ci\tools\php-console.ps1')) { throw 'Missing php-console.ps1' }
+
+          $phpVersion = & $phpExe -v
+          Write-Host $phpVersion
+          if ($phpVersion -notmatch 'PHP 8\.2') {
+            throw 'php -v did not report PHP 8.2'
+          }
+
+          $composerVersion = & $phpExe $composerPhar -V
+          Write-Host $composerVersion
+          if ($composerVersion -notmatch 'Composer') {
+            throw 'composer -V failed'
+          }
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -19,7 +19,9 @@ param(
     [string]$NginxServiceName = 'winginx-nginx',
     [string]$PhpServiceName = 'winginx-php',
     [string]$WebRoot = '',
-    [switch]$SkipServiceStart
+    [string]$ComposerUrl = 'https://getcomposer.org/download/latest-stable/composer.phar',
+    [switch]$SkipServiceStart,
+    [switch]$SkipPathUpdate
 )
 
 Set-StrictMode -Version Latest
@@ -631,6 +633,105 @@ function Start-InstalledService {
     Wait-ForServiceRunning -Name $Name
 }
 
+function Add-ToMachinePath {
+    param([string[]]$PathsToAdd)
+
+    $current = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    if ([string]::IsNullOrWhiteSpace($current)) {
+        $parts = @()
+    }
+    else {
+        $parts = @($current -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    }
+
+    $changed = $false
+    foreach ($path in $PathsToAdd) {
+        $exists = $parts | Where-Object { $_.TrimEnd('\') -ieq $path.TrimEnd('\') }
+        if (-not $exists) {
+            $parts += $path
+            $changed = $true
+        }
+    }
+
+    if ($changed) {
+        [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'Machine')
+        $env:Path = ($parts -join ';') + ';' + $env:Path
+    }
+}
+
+function Install-PhpTooling {
+    param(
+        [string]$InstallRootPath,
+        [string]$PhpRootPath,
+        [string]$ToolsRootPath,
+        [string]$DownloadsRootPath,
+        [string]$WebRootPath,
+        [string]$ComposerDownloadUrl,
+        [bool]$UpdateMachinePath
+    )
+
+    $binDir = Join-Path -Path $ToolsRootPath -ChildPath 'bin'
+    $composerDir = Join-Path -Path $ToolsRootPath -ChildPath 'composer'
+    $composerPhar = Join-Path -Path $composerDir -ChildPath 'composer.phar'
+    $composerArchive = Join-Path -Path $DownloadsRootPath -ChildPath 'composer.phar'
+    $phpExe = Join-Path -Path $PhpRootPath -ChildPath 'php.exe'
+    $phpCliIni = Join-Path -Path $PhpRootPath -ChildPath 'php.ini'
+
+    Ensure-Directory -Path $binDir
+    Ensure-Directory -Path $composerDir
+
+    Download-File -Uri $ComposerDownloadUrl -DestinationPath $composerArchive
+    Copy-Item -Path $composerArchive -Destination $composerPhar -Force
+
+    Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'bin\composer.cmd.tpl') -OutputPath (Join-Path -Path $binDir -ChildPath 'composer.cmd') -Variables @{
+        PHP_EXE       = $phpExe
+        PHP_INI       = $phpCliIni
+        COMPOSER_PHAR = $composerPhar
+    }
+
+    Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'bin\artisan.cmd.tpl') -OutputPath (Join-Path -Path $binDir -ChildPath 'artisan.cmd') -Variables @{
+        PHP_EXE = $phpExe
+        PHP_INI = $phpCliIni
+    }
+
+    $profileScript = Join-Path -Path $ToolsRootPath -ChildPath 'php-console.profile.ps1'
+    Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'php-console.profile.ps1.tpl') -OutputPath $profileScript -Variables @{
+        INSTALL_ROOT  = $InstallRootPath
+        PHP_ROOT      = $PhpRootPath
+        BIN_DIR       = $binDir
+        PHP_EXE       = $phpExe
+        PHP_INI       = $phpCliIni
+        COMPOSER_PHAR = $composerPhar
+    }
+
+    $consoleScript = Join-Path -Path $ToolsRootPath -ChildPath 'php-console.ps1'
+    Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'php-console.ps1.tpl') -OutputPath $consoleScript -Variables @{
+        PROFILE_SCRIPT = $profileScript
+        WEB_ROOT       = $WebRootPath
+    }
+
+    # Ensure CLI uses the managed php.ini when launched from PATH.
+    $phpCmd = @"
+@echo off
+"$phpExe" -c "$phpCliIni" %*
+"@
+    Set-FileContent -Path (Join-Path -Path $binDir -ChildPath 'php.cmd') -Content $phpCmd
+
+    if ($UpdateMachinePath) {
+        Add-ToMachinePath -PathsToAdd @($binDir, $PhpRootPath)
+    }
+
+    $composerVersion = & $phpExe -c $phpCliIni $composerPhar -V 2>&1
+    Write-Host "Composer installed: $composerVersion"
+
+    return @{
+        BinDir         = $binDir
+        ComposerPhar   = $composerPhar
+        ConsoleScript  = $consoleScript
+        ProfileScript  = $profileScript
+    }
+}
+
 Assert-Administrator
 
 $resolvedWebRoot = if ([string]::IsNullOrWhiteSpace($WebRoot)) {
@@ -709,6 +810,15 @@ Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'php.ini
     EXTENSION_LINES = $extensionLines
 }
 
+$phpTooling = Install-PhpTooling `
+    -InstallRootPath $InstallRoot `
+    -PhpRootPath $phpRoot `
+    -ToolsRootPath $toolsRoot `
+    -DownloadsRootPath $downloadsRoot `
+    -WebRootPath $resolvedWebRoot `
+    -ComposerDownloadUrl $ComposerUrl `
+    -UpdateMachinePath (-not $SkipPathUpdate)
+
 $healthPhp = @'
 <?php
 header('Content-Type: text/plain; charset=utf-8');
@@ -758,4 +868,13 @@ Write-Host "PHP version:  $resolvedPhpVersion"
 Write-Host "nginx version: $NginxVersion"
 Write-Host "Site URL: $healthUrl"
 Write-Host "Web root: $resolvedWebRoot"
+Write-Host "Composer: $($phpTooling.ComposerPhar)"
+Write-Host "PHP console: powershell -ExecutionPolicy Bypass -File `"$($phpTooling.ConsoleScript)`""
 Write-Host "Manage extensions: powershell -ExecutionPolicy Bypass -File `"$HelperScript`" -PhpRoot `"$phpRoot`" -List"
+Write-Host ''
+Write-Host 'In the PHP console you can run:'
+Write-Host '  php -v'
+Write-Host '  composer -V'
+Write-Host '  php composer -V'
+Write-Host '  php artisan list   (inside a Laravel project)'
+Write-Host '  artisan list       (inside a Laravel project)'

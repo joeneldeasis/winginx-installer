@@ -14,6 +14,8 @@ Because native Windows PHP does not ship `php-fpm`, this project installs `php-c
 - `nginx` from `https://nginx.org/download/nginx-<version>.zip`
 - PHP from `https://downloads.php.net/~windows/releases/`
 - NSSM as the Windows service wrapper for both `nginx` and `php-cgi`
+- Composer (`composer.phar`) plus `composer` / `artisan` command wrappers
+- a PowerShell PHP console for `php`, `composer`, `php composer`, `artisan`, and `php artisan`
 - a default `index.php` health page
 - a managed `php.ini` extension block
 - `scripts\manage-php-extension.ps1` for interactive and parameter-driven extension search, enable, and install operations
@@ -26,6 +28,9 @@ Default install targets:
 - `C:\winginx\nginx` for the `nginx` server files
 - `C:\winginx\php` for PHP and `php.ini`
 - `C:\winginx\tools` for helper tools such as NSSM
+- `C:\winginx\tools\composer` for Composer
+- `C:\winginx\tools\bin` for `php`, `composer`, and `artisan` command wrappers
+- `C:\winginx\tools\php-console.ps1` for the PHP console launcher
 - `C:\winginx\downloads` for downloaded zip archives
 - `C:\winginx\nginx\html` for the default web root when `-WebRoot` is not provided
 
@@ -37,6 +42,14 @@ After install, the target tree looks like this:
 C:\winginx\
   downloads\
   tools\
+    bin\
+      php.cmd
+      composer.cmd
+      artisan.cmd
+    composer\
+      composer.phar
+    php-console.ps1
+    php-console.profile.ps1
   nginx\
     conf\
       nginx.conf
@@ -130,6 +143,37 @@ This places the stack under:
 - `D:\winginx\tools`
 - `D:\winginx\downloads`
 - `D:\winginx\nginx\html` as the default web root unless `-WebRoot` is also set
+
+## PHP console, Composer, and Artisan
+
+Open the winginx PHP console after install:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\php-console.ps1
+```
+
+Or from this repository:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\php-console.ps1 -InstallRoot C:\winginx
+```
+
+In that console you can run:
+
+```powershell
+php -v
+composer -V
+php composer -V
+composer create-project laravel/laravel my-app
+cd my-app
+php artisan list
+artisan list
+```
+
+Notes:
+- `artisan` / `php artisan` only work inside a Laravel project directory that contains an `artisan` file.
+- The installer also adds `C:\winginx\tools\bin` and `C:\winginx\php` to the machine `PATH`, so `php`, `composer`, and `artisan` work in new terminals after you open a new PowerShell window.
+- Use `-SkipPathUpdate` if you do not want the installer to modify the machine `PATH`.
 
 ## Managing extensions
 
