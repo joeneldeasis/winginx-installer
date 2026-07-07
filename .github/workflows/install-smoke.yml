@@ -92,15 +92,30 @@ jobs:
           if (-not (Test-Path "$binDir\artisan.cmd")) { throw 'Missing artisan.cmd' }
           if (-not (Test-Path 'C:\winginx-ci\tools\php-console.ps1')) { throw 'Missing php-console.ps1' }
 
-          $phpVersion = (& $phpExe -v 2>&1 | Out-String).Trim()
+          $previousErrorAction = $ErrorActionPreference
+          try {
+            $ErrorActionPreference = 'SilentlyContinue'
+            $phpVersion = (& $phpExe -v 2>&1 | ForEach-Object {
+              if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { "$_" }
+            }) -join [Environment]::NewLine
+            $composerOutput = @(& $phpExe -c 'C:\winginx-ci\php\php.ini' $composerPhar -V 2>&1 | ForEach-Object {
+              if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { "$_" }
+            })
+          }
+          finally {
+            $ErrorActionPreference = $previousErrorAction
+          }
+
+          $phpVersion = $phpVersion.Trim()
           Write-Host $phpVersion
           if ($phpVersion -notmatch 'PHP 8\.2') {
             throw 'php -v did not report PHP 8.2'
           }
 
-          $composerOutput = (& $phpExe -c 'C:\winginx-ci\php\php.ini' $composerPhar -V 2>&1 | ForEach-Object {
-            if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { "$_" }
-          })
+          if ($LASTEXITCODE -ne 0) {
+            throw "composer -V failed with exit code $LASTEXITCODE."
+          }
+
           $composerVersion = $composerOutput | Where-Object { $_ -match '^Composer version ' } | Select-Object -First 1
           Write-Host $composerVersion
           if (-not $composerVersion) {
