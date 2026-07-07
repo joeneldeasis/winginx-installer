@@ -92,16 +92,19 @@ jobs:
           if (-not (Test-Path "$binDir\artisan.cmd")) { throw 'Missing artisan.cmd' }
           if (-not (Test-Path 'C:\winginx-ci\tools\php-console.ps1')) { throw 'Missing php-console.ps1' }
 
-          $phpVersion = & $phpExe -v
+          $phpVersion = (& $phpExe -v 2>&1 | Out-String).Trim()
           Write-Host $phpVersion
           if ($phpVersion -notmatch 'PHP 8\.2') {
             throw 'php -v did not report PHP 8.2'
           }
 
-          $composerVersion = & $phpExe $composerPhar -V
+          $composerOutput = (& $phpExe -c 'C:\winginx-ci\php\php.ini' $composerPhar -V 2>&1 | ForEach-Object {
+            if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { "$_" }
+          })
+          $composerVersion = $composerOutput | Where-Object { $_ -match '^Composer version ' } | Select-Object -First 1
           Write-Host $composerVersion
-          if ($composerVersion -notmatch 'Composer') {
-            throw 'composer -V failed'
+          if (-not $composerVersion) {
+            throw "composer -V failed. Output:`n$($composerOutput -join [Environment]::NewLine)"
           }
 
       - name: Upload logs on failure

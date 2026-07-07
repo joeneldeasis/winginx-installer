@@ -721,7 +721,27 @@ function Install-PhpTooling {
         Add-ToMachinePath -PathsToAdd @($binDir, $PhpRootPath)
     }
 
-    $composerVersion = & $phpExe -c $phpCliIni $composerPhar -V 2>&1
+    # Composer prints PHP version details to stderr; ignore that with Stop preference.
+    $previousErrorAction = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'SilentlyContinue'
+        $composerOutput = @(& $phpExe -c $phpCliIni $composerPhar -V 2>&1 | ForEach-Object {
+            if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { "$_" }
+        })
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Composer verification failed with exit code $LASTEXITCODE."
+    }
+
+    $composerVersion = $composerOutput | Where-Object { $_ -match '^Composer version ' } | Select-Object -First 1
+    if (-not $composerVersion) {
+        throw "Composer verification failed. Output:`n$($composerOutput -join [Environment]::NewLine)"
+    }
+
     Write-Host "Composer installed: $composerVersion"
 
     return @{
