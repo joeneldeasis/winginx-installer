@@ -1,9 +1,9 @@
 # winginx installer
 
-[![windows-latest](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-latest.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-latest.yml)
-[![windows-2019](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2019.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2019.yml)
-[![windows-2022](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2022.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2022.yml)
-[![windows-2025](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2025.yml/badge.svg)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2025.yml)
+[![windows-latest](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-latest.yml/badge.svg?branch=main&event=workflow_dispatch)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-latest.yml)
+[![windows-2019](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2019.yml/badge.svg?branch=main&event=workflow_dispatch)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2019.yml)
+[![windows-2022](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2022.yml/badge.svg?branch=main&event=workflow_dispatch)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2022.yml)
+[![windows-2025](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2025.yml/badge.svg?branch=main&event=workflow_dispatch)](https://github.com/joeneldeasis/winginx-installer/actions/workflows/windows-2025.yml)
 
 `winginx` is a PowerShell-based Windows installer for `nginx` plus native Windows PHP FastCGI.
 
@@ -291,11 +291,11 @@ This repository runs the same installer smoke test on each Windows Server versio
 
 Shared steps live in [`.github/workflows/install-smoke.yml`](.github/workflows/install-smoke.yml).
 
-On push to `main`/`master`, pull requests, and manual runs, each workflow:
+CI runs manually from **Actions → Run workflow**. Each workflow:
 
 1. Parses the PowerShell scripts for syntax errors
 2. Runs `install.ps1` under `C:\winginx-ci` on port `8080`
 3. Checks that `winginx-nginx` and `winginx-php` are running
 4. Requests `http://127.0.0.1:8080/` and expects `winginx ok` plus PHP `8.2`
 
-The badges at the top of this README show `windows-latest | passing`, `windows-2019 | passing`, `windows-2022 | passing`, and `windows-2025 | passing` (or failing) for each OS.
+The badges at the top of this README reflect the latest manual (`workflow_dispatch`) run on `main` for each OS.
