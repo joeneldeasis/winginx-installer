@@ -32,6 +32,21 @@ $ConfigRoot = Join-Path -Path $ScriptRoot -ChildPath 'config'
 $TemplateRoot = Join-Path -Path $ScriptRoot -ChildPath 'templates'
 $HelperScript = Join-Path -Path $ScriptRoot -ChildPath 'scripts\manage-php-extension.ps1'
 
+function Enable-TlsSecurityProtocols {
+    # Older Windows/.NET defaults omit TLS 1.2+, which breaks HTTPS downloads.
+    $names = [enum]::GetNames([Net.SecurityProtocolType])
+    if ($names -notcontains 'Tls12') {
+        throw 'This host does not support TLS 1.2, which is required for HTTPS downloads.'
+    }
+
+    $protocols = [Net.SecurityProtocolType]::Tls12
+    if ($names -contains 'Tls13') {
+        $protocols = $protocols -bor [Net.SecurityProtocolType]::Tls13
+    }
+
+    [Net.ServicePointManager]::SecurityProtocol = $protocols
+}
+
 function Test-IsAdministrator {
     $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
@@ -752,6 +767,7 @@ function Install-PhpTooling {
     }
 }
 
+Enable-TlsSecurityProtocols
 Assert-Administrator
 
 $resolvedWebRoot = if ([string]::IsNullOrWhiteSpace($WebRoot)) {
