@@ -3,7 +3,7 @@ param(
     [string]$NginxServiceName = 'winginx-nginx',
     [string]$PhpServiceName = 'winginx-php',
     [string]$NginxRoot = 'C:\winginx\nginx',
-    [switch]$IncludePhp,
+    [switch]$SkipPhp,
     [int]$TimeoutSeconds = 60
 )
 
@@ -36,26 +36,54 @@ function Wait-ForServiceStatus {
     throw "Service '$Name' did not reach '$DesiredStatus' within $TimeoutSeconds seconds."
 }
 
+function Start-WinginxService {
+    param(
+        [string]$Name,
+        [int]$TimeoutSeconds
+    )
+
+    $service = Get-Service -Name $Name -ErrorAction Stop
+
+    if ($service.Status -eq 'Running') {
+        Write-Host "$Name is already running."
+        return
+    }
+
+    if ($service.Status -eq 'Paused') {
+        Write-Host "$Name is paused. Recovering..."
+        Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+    }
+
+    Write-Host "Starting $Name..."
+    Start-Service -Name $Name
+    Wait-ForServiceStatus -Name $Name -DesiredStatus 'Running' -TimeoutSeconds $TimeoutSeconds | Out-Null
+    Write-Host "$Name started."
+}
+
 if (-not (Test-IsAdministrator)) {
     throw 'Run this script from an elevated PowerShell session.'
 }
 
-$service = Get-Service -Name $NginxServiceName -ErrorAction SilentlyContinue
-if ($null -eq $service) {
+$nginxService = Get-Service -Name $NginxServiceName -ErrorAction SilentlyContinue
+if ($null -eq $nginxService) {
     throw "Service '$NginxServiceName' was not found. Install winginx first."
 }
 
-if ($IncludePhp) {
+if (-not $SkipPhp) {
     $phpService = Get-Service -Name $PhpServiceName -ErrorAction SilentlyContinue
     if ($null -eq $phpService) {
         throw "Service '$PhpServiceName' was not found."
     }
 
-    if ($phpService.Status -ne 'Running') {
-        Write-Host "Starting $PhpServiceName..."
-        Start-Service -Name $PhpServiceName
-        Wait-ForServiceStatus -Name $PhpServiceName -DesiredStatus 'Running' -TimeoutSeconds $TimeoutSeconds | Out-Null
+    if ($phpService.Status -eq 'Paused') {
+        Write-Host "$PhpServiceName is paused. Recovering..."
+        Stop-Service -Name $PhpServiceName -Force -ErrorAction SilentlyContinue
+        Get-Process -Name php-cgi -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
     }
+
+    Start-WinginxService -Name $PhpServiceName -TimeoutSeconds $TimeoutSeconds
 }
 
 $nginxExe = Join-Path -Path $NginxRoot -ChildPath 'nginx.exe'
@@ -67,24 +95,15 @@ if (Test-Path -Path $nginxExe) {
     }
 }
 
-if ($service.Status -eq 'Running') {
-    Write-Host "$NginxServiceName is already running."
-}
-elseif ($service.Status -eq 'Paused') {
+if ($nginxService.Status -eq 'Paused') {
     Write-Host "$NginxServiceName is paused. Recovering..."
     Stop-Service -Name $NginxServiceName -Force -ErrorAction SilentlyContinue
     Get-Process -Name nginx -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
-    Start-Service -Name $NginxServiceName
-    Wait-ForServiceStatus -Name $NginxServiceName -DesiredStatus 'Running' -TimeoutSeconds $TimeoutSeconds | Out-Null
-    Write-Host "$NginxServiceName started."
+    $nginxService = Get-Service -Name $NginxServiceName
 }
-else {
-    Write-Host "Starting $NginxServiceName..."
-    Start-Service -Name $NginxServiceName
-    Wait-ForServiceStatus -Name $NginxServiceName -DesiredStatus 'Running' -TimeoutSeconds $TimeoutSeconds | Out-Null
-    Write-Host "$NginxServiceName started."
-}
+
+Start-WinginxService -Name $NginxServiceName -TimeoutSeconds $TimeoutSeconds
 
 Get-Service -Name $NginxServiceName, $PhpServiceName -ErrorAction SilentlyContinue |
     Format-Table Name, Status, StartType -AutoSize

@@ -21,7 +21,7 @@ Because native Windows PHP does not ship `php-fpm`, this project installs `php-c
 - a managed `php.ini` extension block
 - `scripts\manage-php-extension.ps1` for interactive and parameter-driven extension search, enable, and install operations
 - `scripts\fetch-offline-packages.ps1` to download an offline package bundle
-- `scripts\start-nginx.ps1` / `scripts\stop-nginx.ps1` to control the `winginx-nginx` Windows service
+- `scripts\start-nginx.ps1` / `scripts\stop-nginx.ps1` to control `winginx-nginx` and `winginx-php`
 - `scripts\update-nginx-service-scripts.ps1` to copy those helpers onto an existing install under `C:\winginx\tools`
 
 ## Layout
@@ -211,7 +211,7 @@ Notes:
 - The installer also adds `C:\winginx\tools\bin` and `C:\winginx\php` to the machine `PATH`, so `php`, `composer`, and `artisan` work in new terminals after you open a new PowerShell window.
 - Use `-SkipPathUpdate` if you do not want the installer to modify the machine `PATH`.
 
-## Start and stop nginx
+## Start and stop nginx / PHP
 
 Windows services created by the installer:
 
@@ -219,6 +219,8 @@ Windows services created by the installer:
 | --- | --- |
 | `winginx-nginx` | nginx web server (NSSM) |
 | `winginx-php` | PHP FastCGI (`php-cgi`) |
+
+By default the helpers start and stop **both** services (`winginx-php` then `winginx-nginx` on start; nginx then PHP on stop).
 
 ### Deploy helpers to an existing install
 
@@ -242,7 +244,9 @@ That copies:
 - `C:\winginx\tools\bin\start-nginx.cmd`
 - `C:\winginx\tools\bin\stop-nginx.cmd`
 
-### Start nginx
+### Start services
+
+Starts `winginx-php` first, then `winginx-nginx`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1
@@ -257,16 +261,19 @@ C:\winginx\tools\bin\start-nginx.cmd
 The start script:
 
 - requires an elevated PowerShell session
-- runs `nginx -t` before starting
-- recovers when `winginx-nginx` is stuck in `Paused` (stop → kill leftover `nginx.exe` → start)
+- starts `winginx-php` and `winginx-nginx`
+- runs `nginx -t` before starting nginx
+- recovers when a service is stuck in `Paused`
 
-Start PHP FastCGI first as well:
+Nginx only (leave PHP alone):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1 -IncludePhp
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1 -SkipPhp
 ```
 
-### Stop nginx
+### Stop services
+
+Stops `winginx-nginx` first, then `winginx-php`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -KillOrphans
@@ -278,10 +285,12 @@ Or:
 C:\winginx\tools\bin\stop-nginx.cmd -KillOrphans
 ```
 
-Stop PHP FastCGI too:
+`-KillOrphans` also stops leftover `nginx.exe` / `php-cgi.exe` processes.
+
+Nginx only:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -IncludePhp -KillOrphans
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -SkipPhp -KillOrphans
 ```
 
 ### Check status
@@ -290,7 +299,8 @@ powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -Includ
 Get-Service winginx-nginx, winginx-php
 ```
 
-Raw service commands still work, but prefer the helpers when the service is `Paused` or orphaned `nginx.exe` processes remain.
+Raw service commands still work, but prefer the helpers when a service is `Paused` or orphaned processes remain.
+
 ## Managing extensions
 
 Open or run `scripts\manage-php-extension.ps1` without action parameters to launch the guided helper. This is the simplest flow for users who want the script to walk them through extension discovery and installation choices.

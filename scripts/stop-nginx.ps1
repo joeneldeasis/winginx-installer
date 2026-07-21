@@ -3,7 +3,7 @@ param(
     [string]$NginxServiceName = 'winginx-nginx',
     [string]$PhpServiceName = 'winginx-php',
     [string]$NginxRoot = 'C:\winginx\nginx',
-    [switch]$IncludePhp,
+    [switch]$SkipPhp,
     [switch]$KillOrphans,
     [int]$TimeoutSeconds = 60
 )
@@ -37,36 +37,56 @@ function Wait-ForServiceStatus {
     throw "Service '$Name' did not reach '$DesiredStatus' within $TimeoutSeconds seconds."
 }
 
+function Stop-WinginxService {
+    param(
+        [string]$Name,
+        [int]$TimeoutSeconds
+    )
+
+    $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if ($null -eq $service) {
+        Write-Warning "Service '$Name' was not found."
+        return
+    }
+
+    if ($service.Status -eq 'Stopped') {
+        Write-Host "$Name is already stopped."
+        return
+    }
+
+    Write-Host "Stopping $Name..."
+    Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
+
+    try {
+        Wait-ForServiceStatus -Name $Name -DesiredStatus 'Stopped' -TimeoutSeconds $TimeoutSeconds | Out-Null
+        Write-Host "$Name stopped."
+    }
+    catch {
+        Write-Warning $_.Exception.Message
+    }
+}
+
 if (-not (Test-IsAdministrator)) {
     throw 'Run this script from an elevated PowerShell session.'
 }
 
-$service = Get-Service -Name $NginxServiceName -ErrorAction SilentlyContinue
-if ($null -eq $service) {
+$nginxService = Get-Service -Name $NginxServiceName -ErrorAction SilentlyContinue
+if ($null -eq $nginxService) {
     throw "Service '$NginxServiceName' was not found. Install winginx first."
 }
 
-if ($service.Status -ne 'Stopped') {
-    Write-Host "Stopping $NginxServiceName..."
-    Stop-Service -Name $NginxServiceName -Force -ErrorAction SilentlyContinue
+# Stop nginx first (depends on PHP), then PHP.
+Stop-WinginxService -Name $NginxServiceName -TimeoutSeconds $TimeoutSeconds
 
-    $nginxExe = Join-Path -Path $NginxRoot -ChildPath 'nginx.exe'
-    if (Test-Path -Path $nginxExe) {
-        $previous = $ErrorActionPreference
-        try {
-            $ErrorActionPreference = 'SilentlyContinue'
-            & $nginxExe -p $NginxRoot -s quit 2>&1 | Out-Null
-        }
-        finally {
-            $ErrorActionPreference = $previous
-        }
-    }
-
+$nginxExe = Join-Path -Path $NginxRoot -ChildPath 'nginx.exe'
+if (Test-Path -Path $nginxExe) {
+    $previous = $ErrorActionPreference
     try {
-        Wait-ForServiceStatus -Name $NginxServiceName -DesiredStatus 'Stopped' -TimeoutSeconds $TimeoutSeconds | Out-Null
+        $ErrorActionPreference = 'SilentlyContinue'
+        & $nginxExe -p $NginxRoot -s quit 2>&1 | Out-Null
     }
-    catch {
-        Write-Warning $_.Exception.Message
+    finally {
+        $ErrorActionPreference = $previous
     }
 }
 
@@ -76,15 +96,16 @@ if ($KillOrphans -or (Get-Process -Name nginx -ErrorAction SilentlyContinue)) {
     Start-Sleep -Seconds 1
 }
 
-if ($IncludePhp) {
-    $phpService = Get-Service -Name $PhpServiceName -ErrorAction SilentlyContinue
-    if ($null -ne $phpService -and $phpService.Status -ne 'Stopped') {
-        Write-Host "Stopping $PhpServiceName..."
-        Stop-Service -Name $PhpServiceName -Force -ErrorAction SilentlyContinue
-        Wait-ForServiceStatus -Name $PhpServiceName -DesiredStatus 'Stopped' -TimeoutSeconds $TimeoutSeconds | Out-Null
+if (-not $SkipPhp) {
+    Stop-WinginxService -Name $PhpServiceName -TimeoutSeconds $TimeoutSeconds
+
+    if ($KillOrphans -or (Get-Process -Name php-cgi -ErrorAction SilentlyContinue)) {
+        Write-Host 'Stopping leftover php-cgi processes...'
+        Get-Process -Name php-cgi -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
     }
 }
 
-Write-Host "$NginxServiceName stopped."
+Write-Host 'Winginx services stop complete.'
 Get-Service -Name $NginxServiceName, $PhpServiceName -ErrorAction SilentlyContinue |
     Format-Table Name, Status, StartType -AutoSize

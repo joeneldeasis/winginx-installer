@@ -80,6 +80,6 @@ Write-Host "CMD:   $binDir\stop-nginx.cmd"
 Write-Host ''
 Write-Host 'Examples (elevated):'
 Write-Host "  powershell -ExecutionPolicy Bypass -File `"$startDest`""
-Write-Host "  powershell -ExecutionPolicy Bypass -File `"$startDest`" -IncludePhp"
+Write-Host "  powershell -ExecutionPolicy Bypass -File `"$startDest`" -SkipPhp"
 Write-Host "  powershell -ExecutionPolicy Bypass -File `"$stopDest`" -KillOrphans"
-Write-Host "  powershell -ExecutionPolicy Bypass -File `"$stopDest`" -IncludePhp -KillOrphans"
+Write-Host "  powershell -ExecutionPolicy Bypass -File `"$stopDest`" -SkipPhp -KillOrphans"
