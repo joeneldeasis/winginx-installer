@@ -16,9 +16,11 @@ Because native Windows PHP does not ship `php-fpm`, this project installs `php-c
 - NSSM as the Windows service wrapper for both `nginx` and `php-cgi`
 - Composer (`composer.phar`) plus `composer` / `artisan` command wrappers
 - a PowerShell PHP console for `php`, `composer`, `php composer`, `artisan`, and `php artisan`
+- optional offline install from a local `packages\` bundle (`-Offline`)
 - a default `index.php` health page
 - a managed `php.ini` extension block
 - `scripts\manage-php-extension.ps1` for interactive and parameter-driven extension search, enable, and install operations
+- `scripts\fetch-offline-packages.ps1` to download an offline package bundle
 
 ## Layout
 
@@ -117,6 +119,31 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 `
   -PhpVersion 8.2.32 `
   -NginxVersion 1.31.2
 ```
+
+### Offline install
+
+For air-gapped hosts, prepare packages on a machine with internet access:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\fetch-offline-packages.ps1
+```
+
+That downloads PHP, nginx, NSSM, and Composer into `packages\`. Copy the repository and the populated `packages` folder to the offline host, then run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Offline
+```
+
+`-Offline` never downloads remotely. It reads archives from `packages\` by default, or from `-PackageRoot` if you pass one.
+
+Expected package names:
+
+- `php-<version>-nts-Win32-vs16-x64.zip`
+- `nginx-<version>.zip`
+- `nssm-2.24.zip`
+- `composer.phar`
+
+See [packages/README.md](packages/README.md) for the full offline package layout.
 
 Use a custom site root and port:
 

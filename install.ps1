@@ -20,6 +20,8 @@ param(
     [string]$PhpServiceName = 'winginx-php',
     [string]$WebRoot = '',
     [string]$ComposerUrl = 'https://getcomposer.org/download/latest-stable/composer.phar',
+    [string]$PackageRoot = '',
+    [switch]$Offline,
     [switch]$SkipServiceStart,
     [switch]$SkipPathUpdate
 )
@@ -123,6 +125,154 @@ function Resolve-LatestPhpVersion {
     }
 
     return [string]$release.version
+}
+
+function Resolve-PackageRoot {
+    param([string]$RequestedRoot)
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
+        return [System.IO.Path]::GetFullPath($RequestedRoot)
+    }
+
+    return Join-Path -Path $ScriptRoot -ChildPath 'packages'
+}
+
+function Assert-OfflinePackageRoot {
+    param([string]$Root)
+
+    if (-not (Test-Path -Path $Root)) {
+        throw "Offline package root '$Root' was not found. Create it and place the required archives there, or run scripts\fetch-offline-packages.ps1 on a machine with internet access."
+    }
+}
+
+function Resolve-OfflinePhpArchive {
+    param(
+        [string]$PackageRootPath,
+        [string]$VersionSelector,
+        [string]$ThreadModel,
+        [string]$Compiler,
+        [string]$CpuArch
+    )
+
+    $threadSegment = if ($ThreadModel -eq 'nts') { '-nts' } else { '' }
+    $suffix = "Win32-$Compiler-$CpuArch.zip"
+
+    if ($VersionSelector -match '^\d+\.\d+\.\d+$') {
+        $exactName = "php-$VersionSelector$threadSegment-$suffix"
+        $exactPath = Join-Path -Path $PackageRootPath -ChildPath $exactName
+        if (-not (Test-Path -Path $exactPath)) {
+            throw "Offline PHP archive '$exactName' was not found in '$PackageRootPath'."
+        }
+
+        return @{
+            Version = $VersionSelector
+            Path    = $exactPath
+        }
+    }
+
+    $pattern = "^php-($([regex]::Escape($VersionSelector))\.\d+(?:\.\d+)?)$([regex]::Escape($threadSegment))-$([regex]::Escape($suffix.Replace('.zip', '')))\.zip$"
+    $matches = @()
+    Get-ChildItem -Path $PackageRootPath -File -Filter 'php-*.zip' -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Name -match $pattern) {
+            $matches += [pscustomobject]@{
+                Path    = $_.FullName
+                Version = $Matches[1]
+            }
+        }
+    }
+
+    $matches = $matches | Sort-Object { [version]$_.Version } -Descending
+
+    if ($matches.Count -eq 0) {
+        throw "No offline PHP archive matching '$VersionSelector' ($ThreadModel/$Compiler/$CpuArch) was found in '$PackageRootPath'."
+    }
+
+    $selected = $matches | Select-Object -First 1
+    return @{
+        Version = [string]$selected.Version
+        Path    = [string]$selected.Path
+    }
+}
+
+function Resolve-OfflineNginxArchive {
+    param(
+        [string]$PackageRootPath,
+        [string]$Version
+    )
+
+    $exactName = "nginx-$Version.zip"
+    $exactPath = Join-Path -Path $PackageRootPath -ChildPath $exactName
+    if (Test-Path -Path $exactPath) {
+        return @{
+            Version = $Version
+            Path    = $exactPath
+        }
+    }
+
+    $matches = @()
+    Get-ChildItem -Path $PackageRootPath -File -Filter 'nginx-*.zip' -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Name -match '^nginx-(\d+\.\d+\.\d+)\.zip$') {
+            $matches += [pscustomobject]@{
+                Path    = $_.FullName
+                Version = $Matches[1]
+            }
+        }
+    }
+
+    $matches = $matches | Sort-Object { [version]$_.Version } -Descending
+
+    if ($matches.Count -eq 0) {
+        throw "Offline nginx archive 'nginx-$Version.zip' was not found in '$PackageRootPath'."
+    }
+
+    if ($Version -and (@($matches | Where-Object { $_.Version -eq $Version }).Count -eq 0)) {
+        Write-Warning "Requested nginx $Version was not found offline. Using $($matches[0].Version) from '$PackageRootPath'."
+    }
+
+    $selected = $matches | Select-Object -First 1
+    return @{
+        Version = [string]$selected.Version
+        Path    = [string]$selected.Path
+    }
+}
+
+function Resolve-OfflineNssmArchive {
+    param(
+        [string]$PackageRootPath,
+        [string]$Version
+    )
+
+    $exactPath = Join-Path -Path $PackageRootPath -ChildPath "nssm-$Version.zip"
+    if (Test-Path -Path $exactPath) {
+        return $exactPath
+    }
+
+    $match = Get-ChildItem -Path $PackageRootPath -File -Filter 'nssm-*.zip' -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        Select-Object -First 1
+
+    if ($null -ne $match) {
+        return $match.FullName
+    }
+
+    throw "Offline NSSM archive 'nssm-$Version.zip' (or any nssm-*.zip) was not found in '$PackageRootPath'."
+}
+
+function Resolve-OfflineComposerPhar {
+    param([string]$PackageRootPath)
+
+    $candidates = @(
+        (Join-Path -Path $PackageRootPath -ChildPath 'composer.phar')
+        (Join-Path -Path $PackageRootPath -ChildPath 'composer\composer.phar')
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -Path $candidate) {
+            return $candidate
+        }
+    }
+
+    throw "Offline Composer package 'composer.phar' was not found in '$PackageRootPath'."
 }
 
 function Test-IsZipFile {
@@ -296,7 +446,8 @@ function Get-NssmExecutable {
     param(
         [string]$ToolsRoot,
         [string]$Version,
-        [string]$CpuArch
+        [string]$CpuArch,
+        [string]$OfflineArchivePath = ''
     )
 
     $nssmRoot = Join-Path -Path $ToolsRoot -ChildPath 'nssm'
@@ -314,6 +465,48 @@ function Get-NssmExecutable {
     $archFolder = if ($CpuArch -eq 'x86') { 'win32' } else { 'win64' }
     Ensure-Directory -Path $ToolsRoot
     Ensure-Directory -Path (Join-Path -Path $nssmRoot -ChildPath $archFolder)
+
+    if (-not [string]::IsNullOrWhiteSpace($OfflineArchivePath)) {
+        if (-not (Test-Path -Path $OfflineArchivePath)) {
+            throw "Offline NSSM archive '$OfflineArchivePath' was not found."
+        }
+
+        if (-not (Test-IsZipFile -Path $OfflineArchivePath)) {
+            throw "Offline NSSM archive '$OfflineArchivePath' is not a valid ZIP file."
+        }
+
+        Expand-ZipArchive -ArchivePath $OfflineArchivePath -DestinationPath $extractRoot
+        $nestedRoot = Join-Path -Path $extractRoot -ChildPath "nssm-$Version"
+        if (Test-Path -Path $nestedRoot) {
+            Copy-Item -Path (Join-Path -Path $nestedRoot -ChildPath '*') -Destination $nssmRoot -Recurse -Force
+        }
+        else {
+            $nestedMatch = Get-ChildItem -Path $extractRoot -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like 'nssm-*' } |
+                Select-Object -First 1
+            if ($null -ne $nestedMatch) {
+                Copy-Item -Path (Join-Path -Path $nestedMatch.FullName -ChildPath '*') -Destination $nssmRoot -Recurse -Force
+            }
+            else {
+                Copy-Item -Path (Join-Path -Path $extractRoot -ChildPath '*') -Destination $nssmRoot -Recurse -Force
+            }
+        }
+
+        # Support single-exe fallback archives that place nssm.exe at the extract root.
+        if (-not (Test-Path -Path $nssmExe)) {
+            $looseExe = Get-ChildItem -Path $extractRoot -Filter 'nssm.exe' -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if ($null -ne $looseExe) {
+                Copy-Item -Path $looseExe.FullName -Destination $nssmExe -Force
+            }
+        }
+
+        if (-not (Test-Path -Path $nssmExe)) {
+            throw "Unable to locate NSSM executable at '$nssmExe' after extracting '$OfflineArchivePath'."
+        }
+
+        return $nssmExe
+    }
 
     $officialUrls = @(
         "https://nssm.cc/release/nssm-$Version.zip"
@@ -682,6 +875,7 @@ function Install-PhpTooling {
         [string]$DownloadsRootPath,
         [string]$WebRootPath,
         [string]$ComposerDownloadUrl,
+        [string]$ComposerSourcePath = '',
         [bool]$UpdateMachinePath
     )
 
@@ -695,7 +889,18 @@ function Install-PhpTooling {
     Ensure-Directory -Path $binDir
     Ensure-Directory -Path $composerDir
 
-    Download-File -Uri $ComposerDownloadUrl -DestinationPath $composerArchive
+    if (-not [string]::IsNullOrWhiteSpace($ComposerSourcePath)) {
+        if (-not (Test-Path -Path $ComposerSourcePath)) {
+            throw "Composer source '$ComposerSourcePath' was not found."
+        }
+
+        Write-Host "Using offline Composer package: $ComposerSourcePath"
+        Copy-Item -Path $ComposerSourcePath -Destination $composerArchive -Force
+    }
+    else {
+        Download-File -Uri $ComposerDownloadUrl -DestinationPath $composerArchive
+    }
+
     Copy-Item -Path $composerArchive -Destination $composerPhar -Force
 
     Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'bin\composer.cmd.tpl') -OutputPath (Join-Path -Path $binDir -ChildPath 'composer.cmd') -Variables @{
@@ -767,8 +972,13 @@ function Install-PhpTooling {
     }
 }
 
-Enable-TlsSecurityProtocols
+if (-not $Offline) {
+    Enable-TlsSecurityProtocols
+}
+
 Assert-Administrator
+
+$resolvedPackageRoot = Resolve-PackageRoot -RequestedRoot $PackageRoot
 
 $resolvedWebRoot = if ([string]::IsNullOrWhiteSpace($WebRoot)) {
     Join-Path -Path $InstallRoot -ChildPath 'nginx\html'
@@ -790,17 +1000,47 @@ Stop-InstalledStack -NginxServiceName $NginxServiceName -PhpServiceName $PhpServ
 
 $HttpPort = Resolve-HttpPort -RequestedPort $HttpPort -ExplicitPortRequested $PSBoundParameters.ContainsKey('HttpPort')
 
-$resolvedPhpVersion = Resolve-LatestPhpVersion -VersionSelector $PhpVersion -ThreadModel $PhpThreadModel -Compiler $PhpCompiler -CpuArch $Architecture -BaseUrl $PhpBaseUrl
-$phpArchiveName = Get-PhpArchiveName -Version $resolvedPhpVersion -ThreadModel $PhpThreadModel -Compiler $PhpCompiler -CpuArch $Architecture
-$phpArchivePath = Join-Path -Path $downloadsRoot -ChildPath $phpArchiveName
-$phpArchiveUri = "$PhpBaseUrl/$phpArchiveName"
+$composerSourcePath = ''
+$nssmOfflineArchive = ''
 
-$nginxArchiveName = "nginx-$NginxVersion.zip"
-$nginxArchivePath = Join-Path -Path $downloadsRoot -ChildPath $nginxArchiveName
-$nginxArchiveUri = "$NginxBaseUrl/$nginxArchiveName"
+if ($Offline) {
+    Write-Host "Offline mode enabled. Using packages from '$resolvedPackageRoot'."
+    Assert-OfflinePackageRoot -Root $resolvedPackageRoot
 
-Download-File -Uri $phpArchiveUri -DestinationPath $phpArchivePath
-Download-File -Uri $nginxArchiveUri -DestinationPath $nginxArchivePath
+    $phpPackage = Resolve-OfflinePhpArchive `
+        -PackageRootPath $resolvedPackageRoot `
+        -VersionSelector $PhpVersion `
+        -ThreadModel $PhpThreadModel `
+        -Compiler $PhpCompiler `
+        -CpuArch $Architecture
+    $resolvedPhpVersion = $phpPackage.Version
+    $phpArchivePath = $phpPackage.Path
+
+    $nginxPackage = Resolve-OfflineNginxArchive -PackageRootPath $resolvedPackageRoot -Version $NginxVersion
+    $NginxVersion = $nginxPackage.Version
+    $nginxArchivePath = $nginxPackage.Path
+
+    $composerSourcePath = Resolve-OfflineComposerPhar -PackageRootPath $resolvedPackageRoot
+    $nssmOfflineArchive = Resolve-OfflineNssmArchive -PackageRootPath $resolvedPackageRoot -Version $NssmVersion
+
+    Write-Host "Offline PHP archive: $phpArchivePath"
+    Write-Host "Offline nginx archive: $nginxArchivePath"
+    Write-Host "Offline Composer: $composerSourcePath"
+    Write-Host "Offline NSSM archive: $nssmOfflineArchive"
+}
+else {
+    $resolvedPhpVersion = Resolve-LatestPhpVersion -VersionSelector $PhpVersion -ThreadModel $PhpThreadModel -Compiler $PhpCompiler -CpuArch $Architecture -BaseUrl $PhpBaseUrl
+    $phpArchiveName = Get-PhpArchiveName -Version $resolvedPhpVersion -ThreadModel $PhpThreadModel -Compiler $PhpCompiler -CpuArch $Architecture
+    $phpArchivePath = Join-Path -Path $downloadsRoot -ChildPath $phpArchiveName
+    $phpArchiveUri = "$PhpBaseUrl/$phpArchiveName"
+
+    $nginxArchiveName = "nginx-$NginxVersion.zip"
+    $nginxArchivePath = Join-Path -Path $downloadsRoot -ChildPath $nginxArchiveName
+    $nginxArchiveUri = "$NginxBaseUrl/$nginxArchiveName"
+
+    Download-File -Uri $phpArchiveUri -DestinationPath $phpArchivePath
+    Download-File -Uri $nginxArchiveUri -DestinationPath $nginxArchivePath
+}
 
 Stop-InstalledStack -NginxServiceName $NginxServiceName -PhpServiceName $PhpServiceName -NginxRoot $nginxRoot
 
@@ -853,6 +1093,7 @@ $phpTooling = Install-PhpTooling `
     -DownloadsRootPath $downloadsRoot `
     -WebRootPath $resolvedWebRoot `
     -ComposerDownloadUrl $ComposerUrl `
+    -ComposerSourcePath $composerSourcePath `
     -UpdateMachinePath (-not $SkipPathUpdate)
 
 $healthPhp = @'
@@ -863,7 +1104,11 @@ echo 'PHP ' . PHP_VERSION . "\n";
 '@
 Set-FileContent -Path (Join-Path -Path $resolvedWebRoot -ChildPath 'index.php') -Content $healthPhp
 
-$nssmPath = Get-NssmExecutable -ToolsRoot $toolsRoot -Version $NssmVersion -CpuArch $Architecture
+$nssmPath = Get-NssmExecutable `
+    -ToolsRoot $toolsRoot `
+    -Version $NssmVersion `
+    -CpuArch $Architecture `
+    -OfflineArchivePath $nssmOfflineArchive
 $nginxExe = Join-Path -Path $nginxRoot -ChildPath 'nginx.exe'
 $phpExe = Join-Path -Path $phpRoot -ChildPath 'php-cgi.exe'
 $powershellExe = Join-Path -Path $env:SystemRoot -ChildPath 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -899,6 +1144,10 @@ if (-not $SkipServiceStart) {
 
 Write-Host ''
 Write-Host 'Installation complete.'
+if ($Offline) {
+    Write-Host 'Mode: Offline'
+    Write-Host "Package root: $resolvedPackageRoot"
+}
 Write-Host "Install root: $InstallRoot"
 Write-Host "PHP version:  $resolvedPhpVersion"
 Write-Host "nginx version: $NginxVersion"
