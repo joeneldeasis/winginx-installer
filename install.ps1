@@ -171,23 +171,22 @@ function Resolve-OfflinePhpArchive {
     }
 
     $pattern = "^php-($([regex]::Escape($VersionSelector))\.\d+(?:\.\d+)?)$([regex]::Escape($threadSegment))-$([regex]::Escape($suffix.Replace('.zip', '')))\.zip$"
-    $matches = @()
+    $candidates = New-Object System.Collections.Generic.List[object]
     Get-ChildItem -Path $PackageRootPath -File -Filter 'php-*.zip' -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.Name -match $pattern) {
-            $matches += [pscustomobject]@{
-                Path    = $_.FullName
-                Version = $Matches[1]
-            }
+            [void]$candidates.Add([pscustomobject]@{
+                    Path    = $_.FullName
+                    Version = $Matches[1]
+                })
         }
     }
 
-    $matches = $matches | Sort-Object { [version]$_.Version } -Descending
-
-    if ($matches.Count -eq 0) {
+    $sorted = @($candidates | Sort-Object { [version]$_.Version } -Descending)
+    if ($sorted.Count -eq 0) {
         throw "No offline PHP archive matching '$VersionSelector' ($ThreadModel/$Compiler/$CpuArch) was found in '$PackageRootPath'."
     }
 
-    $selected = $matches | Select-Object -First 1
+    $selected = $sorted[0]
     return @{
         Version = [string]$selected.Version
         Path    = [string]$selected.Path
@@ -209,27 +208,26 @@ function Resolve-OfflineNginxArchive {
         }
     }
 
-    $matches = @()
+    $candidates = New-Object System.Collections.Generic.List[object]
     Get-ChildItem -Path $PackageRootPath -File -Filter 'nginx-*.zip' -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.Name -match '^nginx-(\d+\.\d+\.\d+)\.zip$') {
-            $matches += [pscustomobject]@{
-                Path    = $_.FullName
-                Version = $Matches[1]
-            }
+            [void]$candidates.Add([pscustomobject]@{
+                    Path    = $_.FullName
+                    Version = $Matches[1]
+                })
         }
     }
 
-    $matches = $matches | Sort-Object { [version]$_.Version } -Descending
-
-    if ($matches.Count -eq 0) {
+    $sorted = @($candidates | Sort-Object { [version]$_.Version } -Descending)
+    if ($sorted.Count -eq 0) {
         throw "Offline nginx archive 'nginx-$Version.zip' was not found in '$PackageRootPath'."
     }
 
-    if ($Version -and (@($matches | Where-Object { $_.Version -eq $Version }).Count -eq 0)) {
-        Write-Warning "Requested nginx $Version was not found offline. Using $($matches[0].Version) from '$PackageRootPath'."
+    if ($Version -and (@($sorted | Where-Object { $_.Version -eq $Version }).Count -eq 0)) {
+        Write-Warning "Requested nginx $Version was not found offline. Using $($sorted[0].Version) from '$PackageRootPath'."
     }
 
-    $selected = $matches | Select-Object -First 1
+    $selected = $sorted[0]
     return @{
         Version = [string]$selected.Version
         Path    = [string]$selected.Path
