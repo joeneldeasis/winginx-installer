@@ -21,6 +21,8 @@ Because native Windows PHP does not ship `php-fpm`, this project installs `php-c
 - a managed `php.ini` extension block
 - `scripts\manage-php-extension.ps1` for interactive and parameter-driven extension search, enable, and install operations
 - `scripts\fetch-offline-packages.ps1` to download an offline package bundle
+- `scripts\start-nginx.ps1` / `scripts\stop-nginx.ps1` to control the `winginx-nginx` Windows service
+- `scripts\update-nginx-service-scripts.ps1` to copy those helpers onto an existing install under `C:\winginx\tools`
 
 ## Layout
 
@@ -31,8 +33,9 @@ Default install targets:
 - `C:\winginx\php` for PHP and `php.ini`
 - `C:\winginx\tools` for helper tools such as NSSM
 - `C:\winginx\tools\composer` for Composer
-- `C:\winginx\tools\bin` for `php`, `composer`, and `artisan` command wrappers
+- `C:\winginx\tools\bin` for `php`, `composer`, `artisan`, `start-nginx`, and `stop-nginx` command wrappers
 - `C:\winginx\tools\php-console.ps1` for the PHP console launcher
+- `C:\winginx\tools\start-nginx.ps1` / `C:\winginx\tools\stop-nginx.ps1` for service control (after running the update script)
 - `C:\winginx\downloads` for downloaded zip archives
 - `C:\winginx\nginx\html` for the default web root when `-WebRoot` is not provided
 
@@ -48,10 +51,15 @@ C:\winginx\
       php.cmd
       composer.cmd
       artisan.cmd
+      start-nginx.cmd
+      stop-nginx.cmd
     composer\
       composer.phar
     php-console.ps1
     php-console.profile.ps1
+    start-nginx.ps1
+    stop-nginx.ps1
+    run-nginx.ps1
   nginx\
     conf\
       nginx.conf
@@ -67,6 +75,7 @@ C:\winginx\
     php.ini
 ```
 
+`start-nginx.ps1`, `stop-nginx.ps1`, and the matching `.cmd` wrappers are added by running `scripts\update-nginx-service-scripts.ps1` against an existing install (they are not created by `install.ps1` yet).
 ## Default extensions
 
 The installer tries to enable these bundled extensions when their DLLs exist in the selected PHP build:
@@ -204,33 +213,84 @@ Notes:
 
 ## Start and stop nginx
 
-Deploy start/stop helpers onto an already-installed winginx tree (elevated):
+Windows services created by the installer:
+
+| Service | Role |
+| --- | --- |
+| `winginx-nginx` | nginx web server (NSSM) |
+| `winginx-php` | PHP FastCGI (`php-cgi`) |
+
+### Deploy helpers to an existing install
+
+From this repository (elevated):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\update-nginx-service-scripts.ps1
 ```
 
-That copies scripts to `C:\winginx\tools\` and CMD wrappers to `C:\winginx\tools\bin\`.
+Custom install root:
 
-Start nginx (recovers from `Paused`):
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\update-nginx-service-scripts.ps1 `
+  -InstallRoot D:\winginx
+```
+
+That copies:
+
+- `C:\winginx\tools\start-nginx.ps1`
+- `C:\winginx\tools\stop-nginx.ps1`
+- `C:\winginx\tools\bin\start-nginx.cmd`
+- `C:\winginx\tools\bin\stop-nginx.cmd`
+
+### Start nginx
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1
 ```
 
-Stop nginx (and kill leftover `nginx.exe` processes):
+Or:
+
+```powershell
+C:\winginx\tools\bin\start-nginx.cmd
+```
+
+The start script:
+
+- requires an elevated PowerShell session
+- runs `nginx -t` before starting
+- recovers when `winginx-nginx` is stuck in `Paused` (stop → kill leftover `nginx.exe` → start)
+
+Start PHP FastCGI first as well:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1 -IncludePhp
+```
+
+### Stop nginx
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -KillOrphans
 ```
 
-Include PHP FastCGI as well:
+Or:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1 -IncludePhp
+C:\winginx\tools\bin\stop-nginx.cmd -KillOrphans
+```
+
+Stop PHP FastCGI too:
+
+```powershell
 powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -IncludePhp -KillOrphans
 ```
 
+### Check status
+
+```powershell
+Get-Service winginx-nginx, winginx-php
+```
+
+Raw service commands still work, but prefer the helpers when the service is `Paused` or orphaned `nginx.exe` processes remain.
 ## Managing extensions
 
 Open or run `scripts\manage-php-extension.ps1` without action parameters to launch the guided helper. This is the simplest flow for users who want the script to walk them through extension discovery and installation choices.
@@ -304,6 +364,27 @@ The helper only edits the managed extension block in `php.ini`, prevents duplica
 
 If the installer reports `Can't open service`, that usually means it tried to remove an old service that did not exist yet. The updated installer suppresses that noise.
 
+If `winginx-nginx` shows `Paused` or will not stay running:
+
+1. Deploy the service helpers if needed:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\update-nginx-service-scripts.ps1
+```
+
+2. Recover and start:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -KillOrphans
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1
+```
+
+3. Test the config manually:
+
+```powershell
+& C:\winginx\nginx\nginx.exe -t -p C:\winginx\nginx
+```
+
 If services show `Running` but the site does not load:
 
 1. Re-run the installer from an elevated PowerShell session so the updated NSSM service configuration is applied.
@@ -334,7 +415,16 @@ After installation:
 1. Open `http://localhost/` or the configured host and port.
 2. Confirm the page prints `winginx ok` and the running PHP version.
 3. Run `Get-Service winginx-nginx, winginx-php` in PowerShell and confirm both are running.
-4. Use `.\scripts\manage-php-extension.ps1 -PhpRoot C:\winginx\php -List` to confirm managed extensions.
+4. Optionally deploy and verify service helpers:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\update-nginx-service-scripts.ps1
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -KillOrphans
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1
+Get-Service winginx-nginx
+```
+
+5. Use `.\scripts\manage-php-extension.ps1 -PhpRoot C:\winginx\php -List` to confirm managed extensions.
 
 ## Continuous integration
 
