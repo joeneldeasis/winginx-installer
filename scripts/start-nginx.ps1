@@ -3,7 +3,6 @@ param(
     [string]$NginxServiceName = 'winginx-nginx',
     [string]$PhpServiceName = 'winginx-php',
     [string]$NginxRoot = 'C:\winginx\nginx',
-    [switch]$SkipPhp,
     [int]$TimeoutSeconds = 60
 )
 
@@ -70,21 +69,20 @@ if ($null -eq $nginxService) {
     throw "Service '$NginxServiceName' was not found. Install winginx first."
 }
 
-if (-not $SkipPhp) {
-    $phpService = Get-Service -Name $PhpServiceName -ErrorAction SilentlyContinue
-    if ($null -eq $phpService) {
-        throw "Service '$PhpServiceName' was not found."
-    }
-
-    if ($phpService.Status -eq 'Paused') {
-        Write-Host "$PhpServiceName is paused. Recovering..."
-        Stop-Service -Name $PhpServiceName -Force -ErrorAction SilentlyContinue
-        Get-Process -Name php-cgi -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 1
-    }
-
-    Start-WinginxService -Name $PhpServiceName -TimeoutSeconds $TimeoutSeconds
+$phpService = Get-Service -Name $PhpServiceName -ErrorAction SilentlyContinue
+if ($null -eq $phpService) {
+    throw "Service '$PhpServiceName' was not found. Install winginx first."
 }
+
+# PHP first (nginx depends on it), then nginx.
+if ($phpService.Status -eq 'Paused') {
+    Write-Host "$PhpServiceName is paused. Recovering..."
+    Stop-Service -Name $PhpServiceName -Force -ErrorAction SilentlyContinue
+    Get-Process -Name php-cgi -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+}
+
+Start-WinginxService -Name $PhpServiceName -TimeoutSeconds $TimeoutSeconds
 
 $nginxExe = Join-Path -Path $NginxRoot -ChildPath 'nginx.exe'
 if (Test-Path -Path $nginxExe) {
@@ -95,15 +93,15 @@ if (Test-Path -Path $nginxExe) {
     }
 }
 
-if ($nginxService.Status -eq 'Paused') {
+if ((Get-Service -Name $NginxServiceName).Status -eq 'Paused') {
     Write-Host "$NginxServiceName is paused. Recovering..."
     Stop-Service -Name $NginxServiceName -Force -ErrorAction SilentlyContinue
     Get-Process -Name nginx -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
-    $nginxService = Get-Service -Name $NginxServiceName
 }
 
 Start-WinginxService -Name $NginxServiceName -TimeoutSeconds $TimeoutSeconds
 
-Get-Service -Name $NginxServiceName, $PhpServiceName -ErrorAction SilentlyContinue |
+Write-Host 'Winginx services start complete (winginx-php, winginx-nginx).'
+Get-Service -Name $NginxServiceName, $PhpServiceName |
     Format-Table Name, Status, StartType -AutoSize

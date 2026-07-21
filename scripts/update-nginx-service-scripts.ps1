@@ -80,6 +80,5 @@ Write-Host "CMD:   $binDir\stop-nginx.cmd"
 Write-Host ''
 Write-Host 'Examples (elevated):'
 Write-Host "  powershell -ExecutionPolicy Bypass -File `"$startDest`""
-Write-Host "  powershell -ExecutionPolicy Bypass -File `"$startDest`" -SkipPhp"
-Write-Host "  powershell -ExecutionPolicy Bypass -File `"$stopDest`" -KillOrphans"
-Write-Host "  powershell -ExecutionPolicy Bypass -File `"$stopDest`" -SkipPhp -KillOrphans"
+Write-Host "  powershell -ExecutionPolicy Bypass -File `"$stopDest`""
+Write-Host '  (both scripts always start/stop winginx-nginx and winginx-php)'

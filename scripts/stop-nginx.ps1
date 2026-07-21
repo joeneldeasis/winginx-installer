@@ -3,8 +3,6 @@ param(
     [string]$NginxServiceName = 'winginx-nginx',
     [string]$PhpServiceName = 'winginx-php',
     [string]$NginxRoot = 'C:\winginx\nginx',
-    [switch]$SkipPhp,
-    [switch]$KillOrphans,
     [int]$TimeoutSeconds = 60
 )
 
@@ -75,7 +73,12 @@ if ($null -eq $nginxService) {
     throw "Service '$NginxServiceName' was not found. Install winginx first."
 }
 
-# Stop nginx first (depends on PHP), then PHP.
+$phpService = Get-Service -Name $PhpServiceName -ErrorAction SilentlyContinue
+if ($null -eq $phpService) {
+    throw "Service '$PhpServiceName' was not found. Install winginx first."
+}
+
+# Stop nginx first, then PHP.
 Stop-WinginxService -Name $NginxServiceName -TimeoutSeconds $TimeoutSeconds
 
 $nginxExe = Join-Path -Path $NginxRoot -ChildPath 'nginx.exe'
@@ -90,22 +93,15 @@ if (Test-Path -Path $nginxExe) {
     }
 }
 
-if ($KillOrphans -or (Get-Process -Name nginx -ErrorAction SilentlyContinue)) {
-    Write-Host 'Stopping leftover nginx processes...'
-    Get-Process -Name nginx -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 1
-}
+Write-Host 'Stopping leftover nginx processes...'
+Get-Process -Name nginx -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-if (-not $SkipPhp) {
-    Stop-WinginxService -Name $PhpServiceName -TimeoutSeconds $TimeoutSeconds
+Stop-WinginxService -Name $PhpServiceName -TimeoutSeconds $TimeoutSeconds
 
-    if ($KillOrphans -or (Get-Process -Name php-cgi -ErrorAction SilentlyContinue)) {
-        Write-Host 'Stopping leftover php-cgi processes...'
-        Get-Process -Name php-cgi -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 1
-    }
-}
+Write-Host 'Stopping leftover php-cgi processes...'
+Get-Process -Name php-cgi -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
 
-Write-Host 'Winginx services stop complete.'
-Get-Service -Name $NginxServiceName, $PhpServiceName -ErrorAction SilentlyContinue |
+Write-Host 'Winginx services stop complete (winginx-nginx, winginx-php).'
+Get-Service -Name $NginxServiceName, $PhpServiceName |
     Format-Table Name, Status, StartType -AutoSize

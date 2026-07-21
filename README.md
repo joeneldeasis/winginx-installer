@@ -220,7 +220,10 @@ Windows services created by the installer:
 | `winginx-nginx` | nginx web server (NSSM) |
 | `winginx-php` | PHP FastCGI (`php-cgi`) |
 
-By default the helpers start and stop **both** services (`winginx-php` then `winginx-nginx` on start; nginx then PHP on stop).
+The helpers **always** start and stop both services:
+
+- Start: `winginx-php` → `winginx-nginx`
+- Stop: `winginx-nginx` → `winginx-php` (also clears leftover `nginx.exe` / `php-cgi.exe` processes)
 
 ### Deploy helpers to an existing install
 
@@ -244,9 +247,7 @@ That copies:
 - `C:\winginx\tools\bin\start-nginx.cmd`
 - `C:\winginx\tools\bin\stop-nginx.cmd`
 
-### Start services
-
-Starts `winginx-php` first, then `winginx-nginx`:
+### Start both services
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1
@@ -265,32 +266,16 @@ The start script:
 - runs `nginx -t` before starting nginx
 - recovers when a service is stuck in `Paused`
 
-Nginx only (leave PHP alone):
+### Stop both services
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1 -SkipPhp
-```
-
-### Stop services
-
-Stops `winginx-nginx` first, then `winginx-php`:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -KillOrphans
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1
 ```
 
 Or:
 
 ```powershell
-C:\winginx\tools\bin\stop-nginx.cmd -KillOrphans
-```
-
-`-KillOrphans` also stops leftover `nginx.exe` / `php-cgi.exe` processes.
-
-Nginx only:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -SkipPhp -KillOrphans
+C:\winginx\tools\bin\stop-nginx.cmd
 ```
 
 ### Check status
@@ -385,7 +370,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\update-nginx-service-scripts.
 2. Recover and start:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -KillOrphans
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1
 powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1
 ```
 
@@ -429,7 +414,7 @@ After installation:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\update-nginx-service-scripts.ps1
-powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -KillOrphans
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1
 powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1
 Get-Service winginx-nginx
 ```
