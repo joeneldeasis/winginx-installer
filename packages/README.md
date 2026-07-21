@@ -1,17 +1,19 @@
 # Offline packages
 
-Place the installer archives here for air-gapped installs. Do not commit large binaries to git.
+This directory holds the installer archives used by `-Offline`.
 
-## Required files
+The repository ships a default bundle so air-gapped hosts can install without downloading.
 
-| File | Example |
+## Included files
+
+| File | Purpose |
 | --- | --- |
-| PHP Windows ZIP | `php-8.2.32-nts-Win32-vs16-x64.zip` |
-| nginx Windows ZIP | `nginx-1.31.2.zip` |
-| NSSM ZIP | `nssm-2.24.zip` |
+| PHP Windows ZIP | e.g. `php-8.2.32-nts-Win32-vs16-x64.zip` |
+| nginx Windows ZIP | e.g. `nginx-1.31.2.zip` |
+| NSSM ZIP | e.g. `nssm-2.24.zip` |
 | Composer PHAR | `composer.phar` |
 
-## Prepare on a machine with internet
+## Refresh the bundle on a machine with internet
 
 From the repository root:
 
@@ -29,8 +31,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\fetch-offline-packages.ps1 `
 ```
 
 ## Install offline
-
-Copy this repository plus the populated `packages` folder to the offline host, then run elevated:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Offline

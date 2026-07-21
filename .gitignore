@@ -1,5 +1,7 @@
-packages/*
-!packages/README.md
-*.zip
-composer.phar
+# Keep local scratch files out of git, but ship the offline packages bundle.
 .tmp*/
+*.log
+
+# Ignore archives elsewhere in the tree; packages/ is intentionally tracked.
+/*.zip
+/downloads/

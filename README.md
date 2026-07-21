@@ -122,19 +122,19 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 `
 
 ### Offline install
 
-For air-gapped hosts, prepare packages on a machine with internet access:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\fetch-offline-packages.ps1
-```
-
-That downloads PHP, nginx, NSSM, and Composer into `packages\`. Copy the repository and the populated `packages` folder to the offline host, then run:
+Clone or copy this repository (including the `packages\` bundle), then run elevated:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Offline
 ```
 
 `-Offline` never downloads remotely. It reads archives from `packages\` by default, or from `-PackageRoot` if you pass one.
+
+To refresh the shipped package bundle on a machine with internet:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\fetch-offline-packages.ps1
+```
 
 Expected package names:
 
