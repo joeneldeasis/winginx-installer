@@ -202,6 +202,35 @@ Notes:
 - The installer also adds `C:\winginx\tools\bin` and `C:\winginx\php` to the machine `PATH`, so `php`, `composer`, and `artisan` work in new terminals after you open a new PowerShell window.
 - Use `-SkipPathUpdate` if you do not want the installer to modify the machine `PATH`.
 
+## Start and stop nginx
+
+Deploy start/stop helpers onto an already-installed winginx tree (elevated):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\update-nginx-service-scripts.ps1
+```
+
+That copies scripts to `C:\winginx\tools\` and CMD wrappers to `C:\winginx\tools\bin\`.
+
+Start nginx (recovers from `Paused`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1
+```
+
+Stop nginx (and kill leftover `nginx.exe` processes):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -KillOrphans
+```
+
+Include PHP FastCGI as well:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1 -IncludePhp
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\stop-nginx.ps1 -IncludePhp -KillOrphans
+```
+
 ## Managing extensions
 
 Open or run `scripts\manage-php-extension.ps1` without action parameters to launch the guided helper. This is the simplest flow for users who want the script to walk them through extension discovery and installation choices.

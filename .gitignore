@@ -1,6 +1,7 @@
 # Keep local scratch files out of git, but ship the offline packages bundle.
 .tmp*/
 *.log
+samples/
 
 # Ignore archives elsewhere in the tree; packages/ is intentionally tracked.
 /*.zip
