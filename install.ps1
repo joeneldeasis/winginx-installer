@@ -30,6 +30,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
+. (Join-Path -Path $ScriptRoot -ChildPath 'scripts\lib\PhpReleaseSecurity.ps1')
 $ConfigRoot = Join-Path -Path $ScriptRoot -ChildPath 'config'
 $TemplateRoot = Join-Path -Path $ScriptRoot -ChildPath 'templates'
 $HelperScript = Join-Path -Path $ScriptRoot -ChildPath 'scripts\manage-php-extension.ps1'
@@ -110,12 +111,12 @@ function Resolve-LatestPhpVersion {
     )
 
     if ($VersionSelector -match '^\d+\.\d+\.\d+$') {
-        return $VersionSelector
+        return Resolve-PatchedPhpVersion -VersionSelector $VersionSelector -ResolvedVersion $VersionSelector -RepoRoot $ScriptRoot
     }
 
     $manifest = Get-PhpReleasesManifest -BaseUrl $BaseUrl
     if (-not ($manifest.PSObject.Properties.Name -contains $VersionSelector)) {
-        throw "PHP release line '$VersionSelector' was not found in releases.json. Supply an explicit -PhpVersion like '8.2.32'."
+        throw "PHP release line '$VersionSelector' was not found in releases.json. Supply an explicit -PhpVersion like '8.2.35'."
     }
 
     $release = $manifest.$VersionSelector
@@ -124,7 +125,30 @@ function Resolve-LatestPhpVersion {
         throw "PHP build '$buildKey' is not available for release line '$VersionSelector'. Check -Architecture, -PhpThreadModel, or -PhpCompiler."
     }
 
-    return [string]$release.version
+    $resolved = [string]$release.version
+    return Resolve-PatchedPhpVersion -VersionSelector $VersionSelector -ResolvedVersion $resolved -RepoRoot $ScriptRoot
+}
+
+function Resolve-OfflinePhpArchiveForVersion {
+    param(
+        [string]$PackageRootPath,
+        [string]$Version,
+        [string]$ThreadModel,
+        [string]$Compiler,
+        [string]$CpuArch
+    )
+
+    $threadSegment = if ($ThreadModel -eq 'nts') { '-nts' } else { '' }
+    $archiveName = "php-$Version$threadSegment-Win32-$Compiler-$CpuArch.zip"
+    $archivePath = Join-Path -Path $PackageRootPath -ChildPath $archiveName
+    if (-not (Test-Path -Path $archivePath)) {
+        throw "Offline PHP archive '$archiveName' was not found in '$PackageRootPath'. Refresh packages with scripts\fetch-offline-packages.ps1."
+    }
+
+    return @{
+        Version = $Version
+        Path    = $archivePath
+    }
 }
 
 function Resolve-PackageRoot {
@@ -1011,8 +1035,21 @@ if ($Offline) {
         -ThreadModel $PhpThreadModel `
         -Compiler $PhpCompiler `
         -CpuArch $Architecture
-    $resolvedPhpVersion = $phpPackage.Version
+    $resolvedPhpVersion = Resolve-PatchedPhpVersion `
+        -VersionSelector $PhpVersion `
+        -ResolvedVersion $phpPackage.Version `
+        -RepoRoot $ScriptRoot
+    if ($resolvedPhpVersion -ne $phpPackage.Version) {
+        $phpPackage = Resolve-OfflinePhpArchiveForVersion `
+            -PackageRootPath $resolvedPackageRoot `
+            -Version $resolvedPhpVersion `
+            -ThreadModel $PhpThreadModel `
+            -Compiler $PhpCompiler `
+            -CpuArch $Architecture
+    }
+
     $phpArchivePath = $phpPackage.Path
+    $resolvedPhpVersion = $phpPackage.Version
 
     $nginxPackage = Resolve-OfflineNginxArchive -PackageRootPath $resolvedPackageRoot -Version $NginxVersion
     $NginxVersion = $nginxPackage.Version

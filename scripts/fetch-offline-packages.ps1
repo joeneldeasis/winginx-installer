@@ -19,6 +19,7 @@ $ErrorActionPreference = 'Stop'
 
 $ScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 $RepoRoot = Split-Path -Path $ScriptRoot -Parent
+. (Join-Path -Path $ScriptRoot -ChildPath 'lib\PhpReleaseSecurity.ps1')
 
 if ([string]::IsNullOrWhiteSpace($PackageRoot)) {
     $PackageRoot = Join-Path -Path $RepoRoot -ChildPath 'packages'
@@ -78,7 +79,7 @@ function Resolve-LatestPhpVersion {
     )
 
     if ($VersionSelector -match '^\d+\.\d+\.\d+$') {
-        return $VersionSelector
+        return Resolve-PatchedPhpVersion -VersionSelector $VersionSelector -ResolvedVersion $VersionSelector -RepoRoot $RepoRoot
     }
 
     $manifestUri = "$BaseUrl/releases.json"
@@ -95,7 +96,8 @@ function Resolve-LatestPhpVersion {
         throw "PHP build '$buildKey' is not available for release line '$VersionSelector'."
     }
 
-    return [string]$release.version
+    $resolved = [string]$release.version
+    return Resolve-PatchedPhpVersion -VersionSelector $VersionSelector -ResolvedVersion $resolved -RepoRoot $RepoRoot
 }
 
 function Download-FileWithFallbacks {

@@ -22,7 +22,9 @@ jobs:
         run: |
           $files = @(
             '.\install.ps1',
-            '.\scripts\manage-php-extension.ps1'
+            '.\scripts\manage-php-extension.ps1',
+            '.\scripts\patch-php-php2shell.ps1',
+            '.\scripts\lib\PhpReleaseSecurity.ps1'
           )
 
           foreach ($file in $files) {

@@ -125,7 +125,7 @@ Pin explicit versions:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 `
-  -PhpVersion 8.2.32 `
+  -PhpVersion 8.2.35 `
   -NginxVersion 1.31.2
 ```
 
@@ -345,9 +345,30 @@ powershell -ExecutionPolicy Bypass -File .\scripts\manage-php-extension.ps1 `
 
 The helper only edits the managed extension block in `php.ini`, prevents duplicate entries, and fails clearly when an extension is not bundled for the current PHP build. Online search is discovery-only unless the DLL is already bundled or you explicitly provide a trusted DLL path for installation.
 
+## php2shell security patch (CVE-2026-109618, CVE-2026-109619)
+
+New installs with the default `-PhpVersion 8.2` resolve to at least **8.2.35** (see `config\php-security.psd1`). Older pinned versions below that floor are rejected.
+
+Upgrade PHP on an existing winginx host without reinstalling nginx:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1
+```
+
+Custom install root or offline bundle:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1 `
+  -InstallRoot C:\winginx `
+  -Offline `
+  -PackageRoot C:\winginx-installer\packages
+```
+
+The patch stops `winginx-nginx` and `winginx-php`, replaces PHP binaries under `php\`, keeps your existing `php.ini`, sets `session.upload_progress.enabled=0` when missing, and restarts services.
+
 ## Notes
 
-- The default PHP selector is `8.2`, which resolves to the latest secure `8.2.x` build from the official Windows PHP `releases.json` manifest at install time.
+- The default PHP selector is `8.2`, which resolves to the latest `8.2.x` build from the official Windows PHP `releases.json` manifest at install time, but not below **8.2.35** (php2shell fix).
 - `nginx` version defaults to `1.31.2` in the installer and uses the fixed archive URL pattern you provided.
 - Running the installer again on the same target root replaces the current extracted `nginx` and PHP directories.
 - Service logs are written to `nginx\logs\*.log` and `php\logs\*.log`.

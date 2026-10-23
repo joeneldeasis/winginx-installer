@@ -23,6 +23,7 @@ default_socket_timeout=60
 cgi.fix_pathinfo=0
 expose_php=Off
 session.use_strict_mode=1
+session.upload_progress.enabled=0
 allow_url_fopen=On
 date.timezone={{TIMEZONE}}
 
