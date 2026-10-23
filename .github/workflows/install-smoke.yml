@@ -124,6 +124,64 @@ jobs:
             throw "composer -V failed. Output:`n$($composerOutput -join [Environment]::NewLine)"
           }
 
+      - name: Test php2shell patch script
+        shell: powershell
+        run: |
+          $installRoot = 'C:\winginx-ci'
+          $phpRoot = Join-Path $installRoot 'php'
+          $phpIniPath = Join-Path $phpRoot 'php.ini'
+          $securityConfig = Import-PowerShellDataFile -Path '.\config\php-security.psd1'
+          $minimumVersion = [string]$securityConfig.php2shell['8.2']
+
+          if ([string]::IsNullOrWhiteSpace($minimumVersion)) {
+            throw 'php2shell minimum for PHP 8.2 was not defined in config\php-security.psd1.'
+          }
+
+          $marker = '; winginx-ci-patch-test'
+          Add-Content -Path $phpIniPath -Value $marker
+          (Get-Content -Path $phpIniPath) -replace '(?m)^session\.upload_progress\.enabled=.*', 'session.upload_progress.enabled=1' |
+            Set-Content -Path $phpIniPath
+
+          powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1 `
+            -InstallRoot $installRoot
+
+          $iniText = Get-Content -Path $phpIniPath -Raw
+          if ($iniText -notmatch '(?m)^session\.upload_progress\.enabled=0\s*$') {
+            throw 'php.ini is missing session.upload_progress.enabled=0 after idempotent patch.'
+          }
+
+          if ($iniText -notmatch [regex]::Escape($marker)) {
+            throw 'php.ini lost the winginx-ci patch marker after idempotent patch.'
+          }
+
+          powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1 `
+            -InstallRoot $installRoot `
+            -SimulateInstalledVersion '8.2.34'
+
+          $phpVersionLine = (& (Join-Path $phpRoot 'php-cgi.exe') -v 2>&1 | Select-Object -First 1)
+          Write-Host $phpVersionLine
+          if ($phpVersionLine -notmatch "PHP $([regex]::Escape($minimumVersion))") {
+            throw "php-cgi -v did not report PHP $minimumVersion after simulated upgrade patch."
+          }
+
+          $services = Get-Service winginx-nginx, winginx-php -ErrorAction Stop
+          $failed = @($services | Where-Object { $_.Status -ne 'Running' })
+          if ($failed.Count -gt 0) {
+            throw "Services not running after patch: $($failed.Name -join ', ')"
+          }
+
+          Start-Sleep -Seconds 3
+          $response = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 20
+          Write-Host $response.Content
+          if ($response.Content -notmatch "PHP $([regex]::Escape($minimumVersion))") {
+            throw "Health page did not report PHP $minimumVersion after patch."
+          }
+
+          $iniAfterUpgrade = Get-Content -Path $phpIniPath -Raw
+          if ($iniAfterUpgrade -notmatch [regex]::Escape($marker)) {
+            throw 'php.ini lost the winginx-ci patch marker after upgrade patch.'
+          }
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -12,7 +12,8 @@ param(
     [string]$NginxServiceName = 'winginx-nginx',
     [string]$PhpServiceName = 'winginx-php',
     [switch]$Offline,
-    [switch]$SkipIniMitigations
+    [switch]$SkipIniMitigations,
+    [string]$SimulateInstalledVersion = ''
 )
 
 Set-StrictMode -Version Latest
@@ -163,7 +164,17 @@ if (-not (Test-Path -Path $phpRoot)) {
 }
 
 $targetVersion = Resolve-PatchedPhpVersion -VersionSelector $PhpVersion -ResolvedVersion $PhpVersion -RepoRoot $RepoRoot
-$currentVersion = Get-InstalledPhpVersion -PhpRoot $phpRoot
+$detectedVersion = Get-InstalledPhpVersion -PhpRoot $phpRoot
+$currentVersion = $detectedVersion
+if (-not [string]::IsNullOrWhiteSpace($SimulateInstalledVersion)) {
+    if ($SimulateInstalledVersion -notmatch '^\d+\.\d+\.\d+$') {
+        throw "SimulateInstalledVersion must look like 8.2.34 (got '$SimulateInstalledVersion')."
+    }
+
+    Write-Warning "Simulating installed PHP version $SimulateInstalledVersion (detected $detectedVersion)."
+    $currentVersion = $SimulateInstalledVersion
+}
+
 Write-Host "Installed PHP: $currentVersion"
 Write-Host "Target PHP:    $targetVersion"
 
