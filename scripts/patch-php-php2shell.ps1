@@ -184,7 +184,7 @@ if ([version]$currentVersion -ge [version]$targetVersion) {
         Set-PhpIniPhp2ShellMitigations -PhpIniPath (Join-Path -Path $phpRoot -ChildPath 'php.ini')
     }
 
-    return
+    exit 0
 }
 
 if (-not (Test-Path -Path $stopScript) -or -not (Test-Path -Path $startScript)) {
@@ -225,6 +225,8 @@ try {
 finally {
     Write-Host 'Starting winginx services...'
     & $startScript -NginxServiceName $NginxServiceName -PhpServiceName $PhpServiceName
+    $LASTEXITCODE = 0
 }
 
 Write-Host 'php2shell PHP patch complete.'
+exit 0

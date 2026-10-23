@@ -144,6 +144,9 @@ jobs:
 
           powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1 `
             -InstallRoot $installRoot
+          if ($LASTEXITCODE -ne 0) {
+            throw "Idempotent php2shell patch failed with exit code $LASTEXITCODE."
+          }
 
           $iniText = Get-Content -Path $phpIniPath -Raw
           if ($iniText -notmatch '(?m)^session\.upload_progress\.enabled=0\s*$') {
@@ -157,9 +160,13 @@ jobs:
           powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1 `
             -InstallRoot $installRoot `
             -SimulateInstalledVersion '8.2.34'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Simulated php2shell upgrade patch failed with exit code $LASTEXITCODE."
+          }
 
           $phpVersionLine = (& (Join-Path $phpRoot 'php-cgi.exe') -v 2>&1 | Select-Object -First 1)
           Write-Host $phpVersionLine
+          $LASTEXITCODE = 0
           if ($phpVersionLine -notmatch "PHP $([regex]::Escape($minimumVersion))") {
             throw "php-cgi -v did not report PHP $minimumVersion after simulated upgrade patch."
           }
@@ -181,6 +188,9 @@ jobs:
           if ($iniAfterUpgrade -notmatch [regex]::Escape($marker)) {
             throw 'php.ini lost the winginx-ci patch marker after upgrade patch.'
           }
+
+          Write-Host 'php2shell patch workflow checks passed.'
+          exit 0
 
       - name: Upload logs on failure
         if: failure()
