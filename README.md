@@ -347,24 +347,94 @@ The helper only edits the managed extension block in `php.ini`, prevents duplica
 
 ## php2shell security patch (CVE-2026-109618, CVE-2026-109619)
 
-New installs with the default `-PhpVersion 8.2` resolve to at least **8.2.35** (see `config\php-security.psd1`). Older pinned versions below that floor are rejected.
+PHP **8.2.x** needs **8.2.35** or newer (see minimum versions in `config\php-security.psd1`). New installs with default `-PhpVersion 8.2` enforce that floor automatically.
 
-Upgrade PHP on an existing winginx host without reinstalling nginx:
+### Patch an existing winginx installation
+
+Use this when winginx is already on the server and you only need to update PHP under the install root. **nginx, vhosts, Composer, and your site files are not reinstalled.**
+
+**Requirements**
+
+- Windows Server or Windows client with winginx already installed.
+- **Elevated** PowerShell (Run as administrator).
+- Outbound HTTPS to `downloads.php.net` for online patching, **or** an offline PHP ZIP (see below).
+- Default install layout: `C:\winginx` (`php\`, `nginx\`, `tools\`).
+
+**1. Check the PHP version in use**
+
+```powershell
+C:\winginx\php\php-cgi.exe -v
+```
+
+If the version is already **8.2.35** or higher on the 8.2 line, the patch script still applies the recommended `php.ini` mitigation and exits without replacing binaries.
+
+**2. Get the patch script**
+
+Clone or update this repository on the server (or copy at least `scripts\patch-php-php2shell.ps1` and `scripts\lib\PhpReleaseSecurity.ps1` plus `config\php-security.psd1` so paths match the repo layout).
+
+**3. Run the patch (online)**
+
+From the repository root, with the default install root `C:\winginx`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1
 ```
 
-Custom install root or offline bundle:
+Non-default install root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1 `
+  -InstallRoot D:\winginx
+```
+
+**4. Run the patch (offline / air-gapped)**
+
+On a machine with internet, refresh the bundle (must include **8.2.35** or your target fixed build):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\fetch-offline-packages.ps1 `
+  -PhpVersion 8.2.35
+```
+
+Copy the `packages\` folder to the server, then:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1 `
   -InstallRoot C:\winginx `
   -Offline `
-  -PackageRoot C:\winginx-installer\packages
+  -PackageRoot C:\path\to\packages
 ```
 
-The patch stops `winginx-nginx` and `winginx-php`, replaces PHP binaries under `php\`, keeps your existing `php.ini`, sets `session.upload_progress.enabled=0` when missing, and restarts services.
+**5. Verify after the patch**
+
+```powershell
+Get-Service winginx-nginx, winginx-php
+C:\winginx\php\php-cgi.exe -v
+Invoke-WebRequest -Uri 'http://127.0.0.1/' -UseBasicParsing   # or your -HttpPort, e.g. 8080
+```
+
+Confirm services are **Running**, `php-cgi -v` shows **8.2.35+**, and your health or app page loads.
+
+**What the patch does**
+
+- Stops `winginx-nginx`, then `winginx-php` (via `scripts\stop-nginx.ps1`).
+- Downloads or uses the fixed PHP Windows ZIP and updates files under `{InstallRoot}\php\` (binaries and bundled `ext\` DLLs from the archive).
+- **Keeps** your existing `{InstallRoot}\php\php.ini`, `logs\`, and `tmp\`.
+- Sets `session.upload_progress.enabled=0` in `php.ini` when that directive is missing or enabled (defense in depth; **patching PHP is still required**).
+- Restarts services (via `scripts\start-nginx.ps1`).
+
+**Optional parameters**
+
+| Parameter | Purpose |
+| --- | --- |
+| `-PhpVersion 8.2.35` | Target build (default **8.2.35**). |
+| `-InstallRoot` | Winginx root if not `C:\winginx`. |
+| `-Offline` / `-PackageRoot` | Use a local ZIP instead of downloading. |
+| `-SkipIniMitigations` | Do not change `php.ini` (binary upgrade only). |
+
+**If patching is not enough**
+
+Re-running the full installer on the same `-InstallRoot` replaces both nginx and PHP trees. Prefer the patch script when you only need the php2shell PHP fix on a live host.
 
 ## Notes
 
