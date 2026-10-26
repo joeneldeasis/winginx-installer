@@ -24,7 +24,10 @@ param(
     [switch]$Offline,
     [switch]$SkipServiceStart,
     [switch]$SkipPathUpdate,
-    [switch]$SkipNginxReplace
+    [switch]$SkipNginxReplace,
+    [switch]$ReplaceAllNginxVhosts,
+    [switch]$RefreshNginxMainConfig,
+    [switch]$RefreshDefaultVhost
 )
 
 Set-StrictMode -Version Latest
@@ -827,6 +830,31 @@ function Replace-DirectoryContent {
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+function Replace-NginxDirectoryContent {
+    param(
+        [string]$NginxRoot,
+        [string]$SourcePath,
+        [switch]$PreserveConfiguration
+    )
+
+    $confPath = Join-Path -Path $NginxRoot -ChildPath 'conf'
+    $backupPath = $null
+    if ($PreserveConfiguration -and (Test-Path -LiteralPath $confPath)) {
+        $backupPath = Join-Path -Path $env:TEMP -ChildPath ("winginx-nginx-conf-{0}" -f ([Guid]::NewGuid().ToString('N')))
+        Copy-Item -Path $confPath -Destination $backupPath -Recurse -Force
+        Write-Host "Backed up nginx configuration from '$confPath'."
+    }
+
+    Replace-DirectoryContent -TargetPath $NginxRoot -SourcePath $SourcePath
+
+    if ($null -ne $backupPath) {
+        Ensure-Directory -Path $confPath
+        Copy-Item -Path (Join-Path -Path $backupPath -ChildPath '*') -Destination $confPath -Recurse -Force
+        Write-Host "Restored nginx configuration to '$confPath' (including conf.d\)."
+        Remove-Item -Path $backupPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-Nssm {
     param(
         [string]$NssmPath,
@@ -1194,7 +1222,12 @@ if (-not $SkipNginxReplace) {
     }
 
     Stop-InstalledStack -NginxServiceName $NginxServiceName -PhpServiceName $PhpServiceName -NginxRoot $nginxRoot
-    Replace-DirectoryContent -TargetPath $nginxRoot -SourcePath $nginxSourceRoot
+    if ($ReplaceAllNginxVhosts) {
+        Replace-DirectoryContent -TargetPath $nginxRoot -SourcePath $nginxSourceRoot
+    }
+    else {
+        Replace-NginxDirectoryContent -NginxRoot $nginxRoot -SourcePath $nginxSourceRoot -PreserveConfiguration
+    }
 }
 else {
     $nginxExe = Join-Path -Path $nginxRoot -ChildPath 'nginx.exe'
@@ -1202,32 +1235,51 @@ else {
         throw "nginx is not installed under '$nginxRoot'. Remove -SkipNginxReplace or run a full install first."
     }
 
-    Write-Host 'SkipNginxReplace: leaving nginx binaries in place; configuration templates will still be refreshed.'
+    Write-Host 'SkipNginxReplace: leaving nginx binaries in place; existing nginx configuration files are preserved unless refresh switches are passed.'
 }
 
 Ensure-FastCgiDirectories -NginxRoot $nginxRoot -PhpRootPath $phpRoot
 Ensure-Directory -Path $resolvedWebRoot
 
 $confDir = Join-Path -Path $nginxRoot -ChildPath 'conf\conf.d'
-Get-ChildItem -Path $confDir -Filter '*.conf' -ErrorAction SilentlyContinue |
-    Remove-Item -Force -ErrorAction SilentlyContinue
+Ensure-Directory -Path $confDir
+
+if ($ReplaceAllNginxVhosts) {
+    Write-Warning 'ReplaceAllNginxVhosts: removing all conf.d\*.conf files before rendering the winginx default vhost.'
+    Get-ChildItem -Path $confDir -Filter '*.conf' -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+}
 
 $defaultExtensions = Get-DefaultExtensions
 $extensionLines = Get-ExtensionLines -PhpRootPath $phpRoot -DesiredExtensions $defaultExtensions
 
-Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'nginx.conf.tpl') -OutputPath (Join-Path -Path $nginxRoot -ChildPath 'conf\nginx.conf') -Variables @{
-    NGINX_LOG_DIR    = ($nginxRoot.Replace('\', '/')) + '/logs'
-    NGINX_ROOT       = $nginxRoot.Replace('\', '/')
-    NGINX_TEMP_DIR   = ($nginxRoot.Replace('\', '/')) + '/temp'
-    PHP_FASTCGI_HOST = $FastCgiHost
-    PHP_FASTCGI_PORT = $FastCgiPort
+$nginxMainConfigPath = Join-Path -Path $nginxRoot -ChildPath 'conf\nginx.conf'
+$shouldRefreshMainConfig = $RefreshNginxMainConfig -or -not (Test-Path -LiteralPath $nginxMainConfigPath)
+if ($shouldRefreshMainConfig) {
+    Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'nginx.conf.tpl') -OutputPath $nginxMainConfigPath -Variables @{
+        NGINX_LOG_DIR    = ($nginxRoot.Replace('\', '/')) + '/logs'
+        NGINX_ROOT       = $nginxRoot.Replace('\', '/')
+        NGINX_TEMP_DIR   = ($nginxRoot.Replace('\', '/')) + '/temp'
+        PHP_FASTCGI_HOST = $FastCgiHost
+        PHP_FASTCGI_PORT = $FastCgiPort
+    }
+}
+else {
+    Write-Host "Preserving existing nginx main config at '$nginxMainConfigPath' (pass -RefreshNginxMainConfig to replace)."
 }
 
-Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'conf.d\default.conf.tpl') -OutputPath (Join-Path -Path $nginxRoot -ChildPath 'conf\conf.d\default.conf') -Variables @{
-    HTTP_PORT   = $HttpPort
-    SERVER_NAME = $ServerName
-    WEB_ROOT    = $resolvedWebRoot.Replace('\', '/')
-    PHP_ROOT    = $phpRoot.Replace('\', '/')
+$defaultVhostPath = Join-Path -Path $confDir -ChildPath 'default.conf'
+$shouldRefreshDefaultVhost = $ReplaceAllNginxVhosts -or $RefreshDefaultVhost -or -not (Test-Path -LiteralPath $defaultVhostPath)
+if ($shouldRefreshDefaultVhost) {
+    Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'conf.d\default.conf.tpl') -OutputPath $defaultVhostPath -Variables @{
+        HTTP_PORT   = $HttpPort
+        SERVER_NAME = $ServerName
+        WEB_ROOT    = $resolvedWebRoot.Replace('\', '/')
+        PHP_ROOT    = $phpRoot.Replace('\', '/')
+    }
+}
+else {
+    Write-Host "Preserving existing vhost files in '$confDir' (pass -RefreshDefaultVhost to replace default.conf only)."
 }
 
 Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'php.ini.tpl') -OutputPath (Join-Path -Path $phpRoot -ChildPath 'php.ini') -Variables @{

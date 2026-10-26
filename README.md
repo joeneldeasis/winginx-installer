@@ -398,7 +398,8 @@ If access is still denied, reboot once with services stopped, then run install a
 
 - The default PHP selector is `8.2`, which resolves to the latest `8.2.x` build from the official Windows PHP `releases.json` manifest at install time, but not below **8.2.35** (php2shell fix).
 - `nginx` version defaults to `1.31.2` in the installer and uses the fixed archive URL pattern you provided.
-- Running the installer again on the same target root replaces the current extracted `nginx` and PHP directories.
+- Re-running the installer updates PHP by default and preserves **custom** nginx files under `nginx\conf\` and `nginx\conf\conf.d\` (only creates `nginx.conf` / `default.conf` when missing). Pass `-RefreshNginxMainConfig` or `-RefreshDefaultVhost` to replace those winginx templates; `-ReplaceAllNginxVhosts` restores the old destructive wipe of all `conf.d\*.conf` (avoid on production).
+- A full nginx binary replace (without `-SkipNginxReplace`) backs up and restores the entire `nginx\conf` tree so `conf.d` vhosts survive.
 - Service logs are written to `nginx\logs\*.log` and `php\logs\*.log`.
 - If `nssm.cc` is unavailable, the installer falls back to an Internet Archive mirror and then a GitHub-hosted NSSM build.
 - On Windows Server, port `80` is often reserved by IIS or other services. If port `80` is unavailable, the installer automatically falls back to `8080` unless you explicitly pass `-HttpPort`.
