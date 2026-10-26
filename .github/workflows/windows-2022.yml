@@ -1,7 +1,16 @@
 name: windows-2022
 
+# Windows Server 2022 Datacenter matches this runner (windows-2022).
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/php2shell-ws2022-safe
+    paths:
+      - install.ps1
+      - scripts/**
+      - config/**
+      - .github/workflows/**
 
 jobs:
   install:

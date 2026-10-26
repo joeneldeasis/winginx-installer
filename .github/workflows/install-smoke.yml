@@ -24,6 +24,7 @@ jobs:
             '.\install.ps1',
             '.\scripts\manage-php-extension.ps1',
             '.\scripts\patch-php-php2shell.ps1',
+            '.\scripts\patch-php-ws2022-safe.ps1',
             '.\scripts\troubleshoot-winginx.ps1',
             '.\scripts\lib\PhpReleaseSecurity.ps1'
           )
@@ -147,6 +148,35 @@ jobs:
           if (-not $composerVersion) {
             throw "composer -V failed. Output:`n$($composerOutput -join [Environment]::NewLine)"
           }
+
+      - name: Test PHP patch preserves nginx conf.d
+        shell: powershell
+        run: |
+          $installRoot = 'C:\winginx-ci'
+          $confDir = Join-Path $installRoot 'nginx\conf\conf.d'
+          $customConf = Join-Path $confDir 'ci-preserve-vhost.conf'
+          @'
+          server {
+              listen 8099;
+              server_name ci-preserve.test;
+              location / { return 200 "preserve-ok"; add_header Content-Type text/plain; }
+          }
+          '@ | Set-Content -Path $customConf -Encoding UTF8
+
+          powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-ws2022-safe.ps1 `
+            -InstallRoot $installRoot `
+            -SimulateInstalledVersion '8.2.34'
+
+          if (-not (Test-Path -LiteralPath $customConf)) {
+            throw 'Custom conf.d file was removed during patch-php-ws2022-safe.ps1'
+          }
+
+          $text = Get-Content -LiteralPath $customConf -Raw
+          if ($text -notmatch 'preserve-ok') {
+            throw 'Custom conf.d file content changed during patch-php-ws2022-safe.ps1'
+          }
+
+          exit 0
 
       - name: Test php2shell patch script
         shell: powershell

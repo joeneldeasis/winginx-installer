@@ -349,7 +349,38 @@ The helper only edits the managed extension block in `php.ini`, prevents duplica
 
 New installs with the default `-PhpVersion 8.2` resolve to at least **8.2.35** (see `config\php-security.psd1`). Older pinned versions below that floor are rejected.
 
-**Production update (recommended):** use branch [`fix/install-in-place-upgrade`](https://github.com/joeneldeasis/winginx-installer/tree/fix/install-in-place-upgrade). It preserves custom `nginx\conf\conf.d\*.conf` on re-runs (older installers deleted all vhosts).
+### Windows Server 2022 Datacenter (config-safe PHP patch)
+
+Use branch [`fix/php2shell-ws2022-safe`](https://github.com/joeneldeasis/winginx-installer/tree/fix/php2shell-ws2022-safe). It adds `scripts\patch-php-ws2022-safe.ps1`, which runs the PHP-only php2shell patch and **fails if any nginx config file under `nginx\conf\` or `nginx\conf\conf.d\` is added, removed, or changed**. It does **not** run `install.ps1` and does **not** delete vhosts.
+
+```powershell
+cd C:\winginx\winginx-installer
+git fetch origin
+git checkout fix/php2shell-ws2022-safe
+git pull
+
+powershell -ExecutionPolicy Bypass -File .\scripts\stop-nginx.ps1
+
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\patch-php-ws2022-safe.ps1 `
+  -InstallRoot C:\winginx `
+  -PhpVersion 8.2.35
+
+powershell -ExecutionPolicy Bypass -File C:\winginx\tools\start-nginx.ps1
+```
+
+Offline:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\patch-php-ws2022-safe.ps1 `
+  -InstallRoot C:\winginx `
+  -PhpVersion 8.2.35 `
+  -Offline `
+  -PackageRoot C:\winginx\winginx-installer\packages
+```
+
+CI for this branch runs on the `windows-2022` workflow (same generation as Windows Server 2022 Datacenter).
+
+**Production update (broader fixes):** branch [`fix/install-in-place-upgrade`](https://github.com/joeneldeasis/winginx-installer/tree/fix/install-in-place-upgrade) also preserves custom `nginx\conf\conf.d\*.conf` on installer re-runs (older installers deleted all vhosts).
 
 ```powershell
 cd C:\winginx\winginx-installer
