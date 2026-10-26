@@ -349,6 +349,19 @@ The helper only edits the managed extension block in `php.ini`, prevents duplica
 
 New installs with the default `-PhpVersion 8.2` resolve to at least **8.2.35** (see `config\php-security.psd1`). Older pinned versions below that floor are rejected.
 
+**Production update (recommended):** use branch [`fix/install-in-place-upgrade`](https://github.com/joeneldeasis/winginx-installer/tree/fix/install-in-place-upgrade). It preserves custom `nginx\conf\conf.d\*.conf` on re-runs (older installers deleted all vhosts).
+
+```powershell
+cd C:\winginx\winginx-installer
+git fetch origin
+git checkout fix/install-in-place-upgrade
+git pull
+
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\troubleshoot-winginx.ps1 -InstallRoot C:\winginx
+```
+
+See also [`docs/winginx-502-troubleshooting.md`](docs/winginx-502-troubleshooting.md) (and `.pdf` / `.docx` in the same folder).
+
 Upgrade PHP on an existing winginx host without reinstalling nginx:
 
 ```powershell
