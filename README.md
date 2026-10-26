@@ -407,18 +407,24 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -PhpVersion 8.2.35
 
 If access is still denied, reboot once with services stopped, then run install again.
 
-### Automated troubleshoot log (PHP patch, no conf.d changes)
+### Automated troubleshoot log (PHP patch + optional fixes)
 
 Elevated PowerShell from the repository root:
 
 ```powershell
+# Audit + PHP patch + restart (does not edit vhosts unless you opt in)
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\troubleshoot-winginx.ps1 `
   -InstallRoot C:\winginx
+
+# Full playbook automation: stop orphan nginx, disable single-block duplicate vhosts,
+# refresh missing php.ini via install.ps1 -SkipNginxReplace, patch PHP, restart, re-test
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\troubleshoot-winginx.ps1 `
+  -InstallRoot C:\winginx -AutoFix
 ```
 
-This runs read-only checks, lists every `conf.d\*.conf` without modifying them, re-runs `patch-php-php2shell.ps1`, restarts winginx services, repeats checks, and writes `C:\winginx\logs\winginx-troubleshoot-<timestamp>.log` (or `-LogPath`).
+The script logs **COMMAND:** lines, scans `conf.d` for duplicate `listen` + `server_name` pairs, greps nginx logs for upstream/502 patterns, runs HTTP tests (including `Host:` headers from vhosts), runs `patch-php-php2shell.ps1`, and writes `C:\winginx\logs\winginx-troubleshoot-<timestamp>.log` (or `-LogPath`).
 
-Skip the patch: `-SkipPatch`. Skip HTTP probes: `-SkipHttpTests`.
+Switches: `-SkipPatch`, `-SkipHttpTests`, `-StabilizeNginx`, `-DisableDuplicateVhosts`, `-RefreshPhpIniIfMissing` (each included in `-AutoFix`). Multi-block duplicate vhosts still need manual edits.
 
 ## Notes
 
