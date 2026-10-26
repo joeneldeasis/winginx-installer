@@ -7,3 +7,6 @@ samples/
 # Ignore archives elsewhere in the tree; packages/ is intentionally tracked.
 /*.zip
 /downloads/
+
+# Local operator guides (site-specific / confidential); keep on disk only.
+docs/

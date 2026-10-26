@@ -360,7 +360,7 @@ git pull
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\troubleshoot-winginx.ps1 -InstallRoot C:\winginx
 ```
 
-See also [`docs/winginx-502-troubleshooting.md`](docs/winginx-502-troubleshooting.md) (and `.pdf` / `.docx` in the same folder).
+Operator troubleshooting guides (Markdown, PDF, Word) live under `docs\` on your machine only; that folder is **not** in git because it may contain site-specific details.
 
 Upgrade PHP on an existing winginx host without reinstalling nginx:
 
