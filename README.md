@@ -366,6 +366,34 @@ powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1 `
 
 The patch stops `winginx-nginx` and `winginx-php`, replaces PHP binaries under `php\`, keeps your existing `php.ini`, sets `session.upload_progress.enabled=0` when missing, and restarts services.
 
+### If `install.ps1` fails on `C:\winginx\nginx` (Access denied)
+
+That usually means nginx is still running or something has the folder open. On **Windows Server 2016**, older installer builds also failed because they tried to **move** the whole `nginx` folder before updating files.
+
+**Recommended (PHP-only update):** use the patch script above instead of a full reinstall.
+
+**Alternative A — PHP-only reinstall (skip nginx tree):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\stop-nginx.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 `
+  -PhpVersion 8.2.35 `
+  -SkipNginxReplace
+```
+
+**Alternative B — pull branch `fix/install-in-place-upgrade`:** the installer updates nginx **in place with robocopy first**, and only tries delete/move if that fails.
+
+**Alternative C — manual cleanup, then full install:**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\stop-nginx.ps1
+Get-Process nginx, php-cgi -ErrorAction SilentlyContinue | Stop-Process -Force
+Remove-Item C:\winginx\nginx.stale-* -Recurse -Force -ErrorAction SilentlyContinue
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -PhpVersion 8.2.35
+```
+
+If access is still denied, reboot once with services stopped, then run install again.
+
 ## Notes
 
 - The default PHP selector is `8.2`, which resolves to the latest `8.2.x` build from the official Windows PHP `releases.json` manifest at install time, but not below **8.2.35** (php2shell fix).
