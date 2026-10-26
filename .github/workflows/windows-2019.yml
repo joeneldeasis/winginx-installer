@@ -1,7 +1,15 @@
 name: windows-2019
 
+# Closest GitHub-hosted runner to Windows Server 2016 (Windows PowerShell 5.1).
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - fix/php2shell-patch
+    paths:
+      - install.ps1
+      - .github/workflows/**
 
 jobs:
   install:

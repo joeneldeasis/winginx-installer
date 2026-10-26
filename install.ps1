@@ -354,7 +354,7 @@ function Expand-ZipArchive {
 
     if (Test-Path -Path $DestinationPath) {
         try {
-            Remove-Item -Path $DestinationPath -Recurse -Force
+            Remove-Item -LiteralPath $DestinationPath -Recurse -Force -ErrorAction Stop
         }
         catch {
             throw "Unable to replace '$DestinationPath'. Stop the winginx services first, then run the installer again from an elevated PowerShell session. $($_.Exception.Message)"
@@ -362,6 +362,64 @@ function Expand-ZipArchive {
     }
 
     Expand-Archive -Path $ArchivePath -DestinationPath $DestinationPath -Force
+}
+
+function Clear-InstallDirectory {
+    param(
+        [string]$TargetPath,
+        [switch]$AllowInPlaceMerge,
+        [string]$MergeSourcePath = ''
+    )
+
+    if (-not (Test-Path -LiteralPath $TargetPath)) {
+        return 'NotPresent'
+    }
+
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Stop-OrphanedStackProcesses
+        Start-Sleep -Seconds 2
+        try {
+            Remove-Item -LiteralPath $TargetPath -Recurse -Force -ErrorAction Stop
+            return 'Removed'
+        }
+        catch {
+            Write-Warning "Attempt ${attempt}: unable to delete '$TargetPath': $($_.Exception.Message)"
+        }
+    }
+
+    $stalePath = '{0}.stale-{1}' -f $TargetPath, ([Guid]::NewGuid().ToString('N'))
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Stop-OrphanedStackProcesses
+        Start-Sleep -Seconds 2
+        try {
+            Write-Warning "Moving '$TargetPath' aside to '$stalePath'."
+            Move-Item -LiteralPath $TargetPath -Destination $stalePath -Force -ErrorAction Stop
+            return 'MovedAside'
+        }
+        catch {
+            Write-Warning "Attempt ${attempt}: unable to move '$TargetPath': $($_.Exception.Message)"
+        }
+    }
+
+    if ($AllowInPlaceMerge -and -not [string]::IsNullOrWhiteSpace($MergeSourcePath) -and (Test-Path -LiteralPath $MergeSourcePath)) {
+        Write-Warning "Directory '$TargetPath' is locked. Merging updated files over the existing tree with robocopy."
+        & robocopy.exe $MergeSourcePath $TargetPath /E /IS /IT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null
+        $robocopyExit = $LASTEXITCODE
+        if ($robocopyExit -ge 8) {
+            throw "robocopy failed while merging into '$TargetPath' (exit code $robocopyExit)."
+        }
+
+        return 'MergedInPlace'
+    }
+
+    $stopScript = Join-Path -Path $ScriptRoot -ChildPath 'scripts\stop-nginx.ps1'
+    throw @"
+Unable to replace or move '$TargetPath'. Stop winginx services and close programs using nginx or PHP files, then rerun the installer from an elevated PowerShell session:
+
+  powershell -ExecutionPolicy Bypass -File `"$stopScript`"
+
+If the problem persists, reboot the server or remove leftover '*.stale-*' folders under the install root after confirming services are stopped.
+"@
 }
 
 function Get-FileContent {
@@ -720,20 +778,11 @@ function Replace-DirectoryContent {
         [string]$SourcePath
     )
 
-    if (Test-Path -Path $TargetPath) {
-        try {
-            Remove-Item -Path $TargetPath -Recurse -Force -ErrorAction Stop
-        }
-        catch {
-            $stalePath = '{0}.stale-{1}' -f $TargetPath, ([Guid]::NewGuid().ToString('N'))
-            Write-Warning "Unable to delete '$TargetPath'. Moving it aside to '$stalePath'."
-            # Move-Item works on Windows PowerShell 5.1; Rename-Item -NewPath requires PowerShell 7+.
-            Move-Item -LiteralPath $TargetPath -Destination $stalePath -Force
-        }
+    $clearResult = Clear-InstallDirectory -TargetPath $TargetPath -AllowInPlaceMerge -MergeSourcePath $SourcePath
+    if ($clearResult -ne 'MergedInPlace') {
+        Ensure-Directory -Path $TargetPath
+        Copy-Item -Path (Join-Path -Path $SourcePath -ChildPath '*') -Destination $TargetPath -Recurse -Force
     }
-
-    Ensure-Directory -Path $TargetPath
-    Copy-Item -Path (Join-Path -Path $SourcePath -ChildPath '*') -Destination $TargetPath -Recurse -Force
 
     Get-ChildItem -Path (Split-Path -Path $TargetPath -Parent) -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like "$(Split-Path -Path $TargetPath -Leaf).stale-*" } |
@@ -1080,7 +1129,9 @@ else {
 
 Stop-InstalledStack -NginxServiceName $NginxServiceName -PhpServiceName $PhpServiceName -NginxRoot $nginxRoot
 
-Expand-ZipArchive -ArchivePath $phpArchivePath -DestinationPath $phpRoot
+$phpExtractRoot = Join-Path -Path $downloadsRoot -ChildPath "php-$resolvedPhpVersion"
+Expand-ZipArchive -ArchivePath $phpArchivePath -DestinationPath $phpExtractRoot
+Replace-DirectoryContent -TargetPath $phpRoot -SourcePath $phpExtractRoot
 
 $nginxExtractRoot = Join-Path -Path $downloadsRoot -ChildPath "nginx-$NginxVersion"
 Expand-ZipArchive -ArchivePath $nginxArchivePath -DestinationPath $nginxExtractRoot
@@ -1089,6 +1140,7 @@ if (-not (Test-Path -Path $nginxSourceRoot)) {
     $nginxSourceRoot = $nginxExtractRoot
 }
 
+Stop-InstalledStack -NginxServiceName $NginxServiceName -PhpServiceName $PhpServiceName -NginxRoot $nginxRoot
 Replace-DirectoryContent -TargetPath $nginxRoot -SourcePath $nginxSourceRoot
 
 Ensure-FastCgiDirectories -NginxRoot $nginxRoot -PhpRootPath $phpRoot

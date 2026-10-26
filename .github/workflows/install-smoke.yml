@@ -81,6 +81,29 @@ jobs:
             throw "Health page did not report PHP 8.2"
           }
 
+      - name: Re-run installer over existing install
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 `
+            -InstallRoot C:\winginx-ci `
+            -HttpPort 8080 `
+            -ServerName localhost `
+            -PhpVersion 8.2.35 `
+            -NginxVersion 1.31.2
+          if ($LASTEXITCODE -ne 0) {
+            throw "Re-install over existing winginx-ci failed with exit code $LASTEXITCODE."
+          }
+          exit 0
+
+      - name: Verify services after re-install
+        shell: powershell
+        run: |
+          $services = Get-Service winginx-nginx, winginx-php -ErrorAction Stop
+          $failed = @($services | Where-Object { $_.Status -ne 'Running' })
+          if ($failed.Count -gt 0) {
+            throw "Services not running after re-install: $($failed.Name -join ', ')"
+          }
+
       - name: Verify PHP tooling
         shell: powershell
         run: |
