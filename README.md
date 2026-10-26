@@ -394,6 +394,19 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -PhpVersion 8.2.35
 
 If access is still denied, reboot once with services stopped, then run install again.
 
+### Automated troubleshoot log (PHP patch, no conf.d changes)
+
+Elevated PowerShell from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\troubleshoot-winginx.ps1 `
+  -InstallRoot C:\winginx
+```
+
+This runs read-only checks, lists every `conf.d\*.conf` without modifying them, re-runs `patch-php-php2shell.ps1`, restarts winginx services, repeats checks, and writes `C:\winginx\logs\winginx-troubleshoot-<timestamp>.log` (or `-LogPath`).
+
+Skip the patch: `-SkipPatch`. Skip HTTP probes: `-SkipHttpTests`.
+
 ## Notes
 
 - The default PHP selector is `8.2`, which resolves to the latest `8.2.x` build from the official Windows PHP `releases.json` manifest at install time, but not below **8.2.35** (php2shell fix).
