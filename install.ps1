@@ -727,7 +727,8 @@ function Replace-DirectoryContent {
         catch {
             $stalePath = '{0}.stale-{1}' -f $TargetPath, ([Guid]::NewGuid().ToString('N'))
             Write-Warning "Unable to delete '$TargetPath'. Moving it aside to '$stalePath'."
-            Rename-Item -Path $TargetPath -NewPath $stalePath -Force
+            # Move-Item works on Windows PowerShell 5.1; Rename-Item -NewPath requires PowerShell 7+.
+            Move-Item -LiteralPath $TargetPath -Destination $stalePath -Force
         }
     }
 
