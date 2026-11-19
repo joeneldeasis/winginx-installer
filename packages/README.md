@@ -9,7 +9,7 @@ The repository ships a default bundle so air-gapped hosts can install without do
 | File | Purpose |
 | --- | --- |
 | PHP Windows ZIP | e.g. `php-8.2.35-nts-Win32-vs16-x64.zip` |
-| nginx Windows ZIP | e.g. `nginx-1.31.2.zip` |
+| nginx Windows ZIP | e.g. `nginx-1.31.9.zip` |
 | NSSM ZIP | e.g. `nssm-2.24.zip` |
 | Composer PHAR | `composer.phar` |
 
@@ -26,7 +26,7 @@ Optional pins:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\fetch-offline-packages.ps1 `
   -PhpVersion 8.2.35 `
-  -NginxVersion 1.31.2 `
+  -NginxVersion 1.31.9 `
   -NssmVersion 2.24
 ```
 

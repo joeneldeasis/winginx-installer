@@ -1,3 +1,7 @@
+# php2shell (CVE-2026-109618 / CVE-2026-109619) PHP binary patch for winginx.
+# Updates InstallRoot\php only. Does not read, write, or delete nginx conf\ or conf\conf.d\ files.
+# For a pre/post hash check on Windows Server 2022+, use scripts\patch-php-ws2022-safe.ps1.
+
 [CmdletBinding()]
 param(
     [string]$InstallRoot = 'C:\winginx',

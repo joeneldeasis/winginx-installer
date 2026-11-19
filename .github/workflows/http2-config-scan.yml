@@ -1,0 +1,120 @@
+name: http2-config-scan
+
+# TEMPORARY: run operator HTTP/2 checks from docs/winginx-check-http2.md on Windows.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - fix/php2shell-ws2022-safe
+    paths:
+      - scripts/ci/Invoke-WinginxHttp2ConfigScan.ps1
+      - .github/workflows/http2-config-scan.yml
+
+jobs:
+  scan:
+    runs-on: windows-2022
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse HTTP/2 scan script
+        shell: powershell
+        run: |
+          $file = '.\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $file),
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "Syntax errors in $file"
+          }
+
+      - name: Prepare minimal nginx tree (scan only)
+        shell: powershell
+        run: |
+          $installRoot = 'C:\winginx-ci'
+          $nginxVersion = '1.31.9'
+          $zipPath = Join-Path $env:TEMP "nginx-$nginxVersion.zip"
+          $extractRoot = Join-Path $env:TEMP "nginx-$nginxVersion-extract"
+          $nginxRoot = Join-Path $installRoot 'nginx'
+
+          if (Test-Path $installRoot) {
+            Remove-Item -LiteralPath $installRoot -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+
+          if (Test-Path $extractRoot) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+          }
+
+          Invoke-WebRequest -Uri "https://nginx.org/download/nginx-$nginxVersion.zip" -OutFile $zipPath -UseBasicParsing
+          Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
+          $sourceRoot = Join-Path $extractRoot "nginx-$nginxVersion"
+          if (-not (Test-Path -LiteralPath $sourceRoot)) {
+            throw "Extracted nginx folder was not found: $sourceRoot"
+          }
+
+          Copy-Item -LiteralPath $sourceRoot -Destination $nginxRoot -Recurse -Force
+
+          $confDir = Join-Path $nginxRoot 'conf\conf.d'
+          New-Item -ItemType Directory -Force -Path $confDir | Out-Null
+
+          @'
+          worker_processes  auto;
+          error_log  logs/error.log warn;
+          pid        logs/nginx.pid;
+
+          events {
+              worker_connections  1024;
+          }
+
+          http {
+              include       mime.types;
+              default_type  application/octet-stream;
+              include conf.d/*.conf;
+          }
+          '@ | Set-Content -Path (Join-Path $nginxRoot 'conf\nginx.conf') -Encoding UTF8
+
+          @'
+          server {
+              listen 8080;
+              server_name localhost;
+              location / { return 200 "winginx-ci-http2-scan\n"; add_header Content-Type text/plain; }
+          }
+          '@ | Set-Content -Path (Join-Path $confDir 'default.conf') -Encoding UTF8
+
+      - name: Run HTTP/2 config scan (stock + fixture)
+        shell: powershell
+        run: |
+          $installRoot = 'C:\winginx-ci'
+          $confDir = Join-Path $installRoot 'nginx\conf\conf.d'
+
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1 `
+            -InstallRoot $installRoot
+
+          $fixture = Join-Path $confDir 'ci-http2-scan-fixture.conf'
+          @'
+          server {
+              listen 8443 ssl http2;
+              server_name ci-http2-fixture;
+              return 444;
+          }
+          '@ | Set-Content -Path $fixture -Encoding UTF8
+
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1 `
+            -InstallRoot $installRoot
+
+          $http2Pattern = '(?i)(^\s*listen\s+.*\bhttp2\b|^\s*http2\s+(on|off)\s*;)'
+          $recursiveHits = @(Get-ChildItem -Path (Join-Path $installRoot 'nginx\conf') -Recurse -File -Include *.conf |
+            Select-String -Pattern $http2Pattern)
+          if (@($recursiveHits | Where-Object { $_.Path -eq $fixture }).Count -eq 0) {
+            throw 'Recursive http2 scan did not find the fixture conf.'
+          }

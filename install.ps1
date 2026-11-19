@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$InstallRoot = 'C:\winginx',
-    [string]$PhpVersion = '8.2',
-    [string]$NginxVersion = '1.31.2',
+    [string]$PhpVersion = '8.2.35',
+    [string]$NginxVersion = '1.31.9',
     [ValidateSet('x64', 'x86')]
     [string]$Architecture = 'x64',
     [ValidateSet('nts', 'ts')]
@@ -23,7 +23,11 @@ param(
     [string]$PackageRoot = '',
     [switch]$Offline,
     [switch]$SkipServiceStart,
-    [switch]$SkipPathUpdate
+    [switch]$SkipPathUpdate,
+    [switch]$SkipNginxReplace,
+    [switch]$ReplaceAllNginxVhosts,
+    [switch]$RefreshNginxMainConfig,
+    [switch]$RefreshDefaultVhost
 )
 
 Set-StrictMode -Version Latest
@@ -354,7 +358,7 @@ function Expand-ZipArchive {
 
     if (Test-Path -Path $DestinationPath) {
         try {
-            Remove-Item -Path $DestinationPath -Recurse -Force
+            Remove-Item -LiteralPath $DestinationPath -Recurse -Force -ErrorAction Stop
         }
         catch {
             throw "Unable to replace '$DestinationPath'. Stop the winginx services first, then run the installer again from an elevated PowerShell session. $($_.Exception.Message)"
@@ -362,6 +366,97 @@ function Expand-ZipArchive {
     }
 
     Expand-Archive -Path $ArchivePath -DestinationPath $DestinationPath -Force
+}
+
+function Sync-InstallDirectoryWithRobocopy {
+    param(
+        [string]$SourcePath,
+        [string]$TargetPath
+    )
+
+    if (-not (Test-Path -LiteralPath $SourcePath)) {
+        throw "Robocopy source '$SourcePath' was not found."
+    }
+
+    if (-not (Test-Path -LiteralPath $TargetPath)) {
+        Ensure-Directory -Path $TargetPath
+    }
+
+    & robocopy.exe $SourcePath $TargetPath /E /IS /IT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null
+    $robocopyExit = $LASTEXITCODE
+    if ($robocopyExit -ge 8) {
+        return $false
+    }
+
+    return $true
+}
+
+function Clear-InstallDirectory {
+    param(
+        [string]$TargetPath,
+        [switch]$AllowInPlaceMerge,
+        [switch]$PreferInPlaceMerge,
+        [string]$MergeSourcePath = ''
+    )
+
+    if (-not (Test-Path -LiteralPath $TargetPath)) {
+        return 'NotPresent'
+    }
+
+    if ($PreferInPlaceMerge -and $AllowInPlaceMerge -and -not [string]::IsNullOrWhiteSpace($MergeSourcePath)) {
+        Write-Host "Updating '$TargetPath' in place (robocopy) before attempting delete or move."
+        Stop-OrphanedStackProcesses
+        Start-Sleep -Seconds 2
+        if (Sync-InstallDirectoryWithRobocopy -SourcePath $MergeSourcePath -TargetPath $TargetPath) {
+            return 'MergedInPlace'
+        }
+
+        Write-Warning "In-place update failed for '$TargetPath'. Falling back to replace/move."
+    }
+
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Stop-OrphanedStackProcesses
+        Start-Sleep -Seconds 2
+        try {
+            Remove-Item -LiteralPath $TargetPath -Recurse -Force -ErrorAction Stop
+            return 'Removed'
+        }
+        catch {
+            Write-Warning "Attempt ${attempt}: unable to delete '$TargetPath': $($_.Exception.Message)"
+        }
+    }
+
+    $stalePath = '{0}.stale-{1}' -f $TargetPath, ([Guid]::NewGuid().ToString('N'))
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Stop-OrphanedStackProcesses
+        Start-Sleep -Seconds 2
+        try {
+            Write-Warning "Moving '$TargetPath' aside to '$stalePath'."
+            Move-Item -LiteralPath $TargetPath -Destination $stalePath -Force -ErrorAction Stop
+            return 'MovedAside'
+        }
+        catch {
+            Write-Warning "Attempt ${attempt}: unable to move '$TargetPath': $($_.Exception.Message)"
+        }
+    }
+
+    if ($AllowInPlaceMerge -and -not [string]::IsNullOrWhiteSpace($MergeSourcePath) -and (Test-Path -LiteralPath $MergeSourcePath)) {
+        Write-Warning "Directory '$TargetPath' is locked. Retrying in-place merge with robocopy."
+        if (Sync-InstallDirectoryWithRobocopy -SourcePath $MergeSourcePath -TargetPath $TargetPath) {
+            return 'MergedInPlace'
+        }
+
+        throw "robocopy failed while merging into '$TargetPath'."
+    }
+
+    $stopScript = Join-Path -Path $ScriptRoot -ChildPath 'scripts\stop-nginx.ps1'
+    throw @"
+Unable to replace or move '$TargetPath'. Stop winginx services and close programs using nginx or PHP files, then rerun the installer from an elevated PowerShell session:
+
+  powershell -ExecutionPolicy Bypass -File `"$stopScript`"
+
+If the problem persists, reboot the server or remove leftover '*.stale-*' folders under the install root after confirming services are stopped.
+"@
 }
 
 function Get-FileContent {
@@ -720,23 +815,44 @@ function Replace-DirectoryContent {
         [string]$SourcePath
     )
 
-    if (Test-Path -Path $TargetPath) {
-        try {
-            Remove-Item -Path $TargetPath -Recurse -Force -ErrorAction Stop
-        }
-        catch {
-            $stalePath = '{0}.stale-{1}' -f $TargetPath, ([Guid]::NewGuid().ToString('N'))
-            Write-Warning "Unable to delete '$TargetPath'. Moving it aside to '$stalePath'."
-            Rename-Item -Path $TargetPath -NewPath $stalePath -Force
-        }
+    $clearResult = Clear-InstallDirectory `
+        -TargetPath $TargetPath `
+        -AllowInPlaceMerge `
+        -PreferInPlaceMerge `
+        -MergeSourcePath $SourcePath
+    if ($clearResult -ne 'MergedInPlace') {
+        Ensure-Directory -Path $TargetPath
+        Copy-Item -Path (Join-Path -Path $SourcePath -ChildPath '*') -Destination $TargetPath -Recurse -Force
     }
-
-    Ensure-Directory -Path $TargetPath
-    Copy-Item -Path (Join-Path -Path $SourcePath -ChildPath '*') -Destination $TargetPath -Recurse -Force
 
     Get-ChildItem -Path (Split-Path -Path $TargetPath -Parent) -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like "$(Split-Path -Path $TargetPath -Leaf).stale-*" } |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+function Replace-NginxDirectoryContent {
+    param(
+        [string]$NginxRoot,
+        [string]$SourcePath,
+        [switch]$PreserveConfiguration
+    )
+
+    $confPath = Join-Path -Path $NginxRoot -ChildPath 'conf'
+    $backupPath = $null
+    if ($PreserveConfiguration -and (Test-Path -LiteralPath $confPath)) {
+        $backupPath = Join-Path -Path $env:TEMP -ChildPath ("winginx-nginx-conf-{0}" -f ([Guid]::NewGuid().ToString('N')))
+        Copy-Item -Path $confPath -Destination $backupPath -Recurse -Force
+        Write-Host "Backed up nginx configuration from '$confPath'."
+    }
+
+    Replace-DirectoryContent -TargetPath $NginxRoot -SourcePath $SourcePath
+
+    if ($null -ne $backupPath) {
+        Ensure-Directory -Path $confPath
+        Copy-Item -Path (Join-Path -Path $backupPath -ChildPath '*') -Destination $confPath -Recurse -Force
+        Write-Host "Restored nginx configuration to '$confPath' (including conf.d\)."
+        Remove-Item -Path $backupPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Invoke-Nssm {
@@ -1051,15 +1167,23 @@ if ($Offline) {
     $phpArchivePath = $phpPackage.Path
     $resolvedPhpVersion = $phpPackage.Version
 
-    $nginxPackage = Resolve-OfflineNginxArchive -PackageRootPath $resolvedPackageRoot -Version $NginxVersion
-    $NginxVersion = $nginxPackage.Version
-    $nginxArchivePath = $nginxPackage.Path
+    $nginxArchivePath = ''
+    if (-not $SkipNginxReplace) {
+        $nginxPackage = Resolve-OfflineNginxArchive -PackageRootPath $resolvedPackageRoot -Version $NginxVersion
+        $NginxVersion = $nginxPackage.Version
+        $nginxArchivePath = $nginxPackage.Path
+    }
 
     $composerSourcePath = Resolve-OfflineComposerPhar -PackageRootPath $resolvedPackageRoot
     $nssmOfflineArchive = Resolve-OfflineNssmArchive -PackageRootPath $resolvedPackageRoot -Version $NssmVersion
 
     Write-Host "Offline PHP archive: $phpArchivePath"
-    Write-Host "Offline nginx archive: $nginxArchivePath"
+    if ($SkipNginxReplace) {
+        Write-Host 'Offline nginx archive: skipped (-SkipNginxReplace)'
+    }
+    else {
+        Write-Host "Offline nginx archive: $nginxArchivePath"
+    }
     Write-Host "Offline Composer: $composerSourcePath"
     Write-Host "Offline NSSM archive: $nssmOfflineArchive"
 }
@@ -1074,45 +1198,88 @@ else {
     $nginxArchiveUri = "$NginxBaseUrl/$nginxArchiveName"
 
     Download-File -Uri $phpArchiveUri -DestinationPath $phpArchivePath
-    Download-File -Uri $nginxArchiveUri -DestinationPath $nginxArchivePath
+    if (-not $SkipNginxReplace) {
+        Download-File -Uri $nginxArchiveUri -DestinationPath $nginxArchivePath
+    }
 }
 
 Stop-InstalledStack -NginxServiceName $NginxServiceName -PhpServiceName $PhpServiceName -NginxRoot $nginxRoot
 
-Expand-ZipArchive -ArchivePath $phpArchivePath -DestinationPath $phpRoot
+$phpExtractRoot = Join-Path -Path $downloadsRoot -ChildPath "php-$resolvedPhpVersion"
+Expand-ZipArchive -ArchivePath $phpArchivePath -DestinationPath $phpExtractRoot
+Replace-DirectoryContent -TargetPath $phpRoot -SourcePath $phpExtractRoot
 
-$nginxExtractRoot = Join-Path -Path $downloadsRoot -ChildPath "nginx-$NginxVersion"
-Expand-ZipArchive -ArchivePath $nginxArchivePath -DestinationPath $nginxExtractRoot
-$nginxSourceRoot = Join-Path -Path $nginxExtractRoot -ChildPath "nginx-$NginxVersion"
-if (-not (Test-Path -Path $nginxSourceRoot)) {
-    $nginxSourceRoot = $nginxExtractRoot
+if (-not $SkipNginxReplace) {
+    if ([string]::IsNullOrWhiteSpace($nginxArchivePath)) {
+        throw 'Internal error: nginx archive path is missing. Remove -SkipNginxReplace for a full nginx install.'
+    }
+
+    $nginxExtractRoot = Join-Path -Path $downloadsRoot -ChildPath "nginx-$NginxVersion"
+    Expand-ZipArchive -ArchivePath $nginxArchivePath -DestinationPath $nginxExtractRoot
+    $nginxSourceRoot = Join-Path -Path $nginxExtractRoot -ChildPath "nginx-$NginxVersion"
+    if (-not (Test-Path -Path $nginxSourceRoot)) {
+        $nginxSourceRoot = $nginxExtractRoot
+    }
+
+    Stop-InstalledStack -NginxServiceName $NginxServiceName -PhpServiceName $PhpServiceName -NginxRoot $nginxRoot
+    if ($ReplaceAllNginxVhosts) {
+        Replace-DirectoryContent -TargetPath $nginxRoot -SourcePath $nginxSourceRoot
+    }
+    else {
+        Replace-NginxDirectoryContent -NginxRoot $nginxRoot -SourcePath $nginxSourceRoot -PreserveConfiguration
+    }
 }
+else {
+    $nginxExe = Join-Path -Path $nginxRoot -ChildPath 'nginx.exe'
+    if (-not (Test-Path -LiteralPath $nginxExe)) {
+        throw "nginx is not installed under '$nginxRoot'. Remove -SkipNginxReplace or run a full install first."
+    }
 
-Replace-DirectoryContent -TargetPath $nginxRoot -SourcePath $nginxSourceRoot
+    Write-Host 'SkipNginxReplace: leaving nginx binaries in place; existing nginx configuration files are preserved unless refresh switches are passed.'
+}
 
 Ensure-FastCgiDirectories -NginxRoot $nginxRoot -PhpRootPath $phpRoot
 Ensure-Directory -Path $resolvedWebRoot
 
 $confDir = Join-Path -Path $nginxRoot -ChildPath 'conf\conf.d'
-Get-ChildItem -Path $confDir -Filter '*.conf' -ErrorAction SilentlyContinue |
-    Remove-Item -Force -ErrorAction SilentlyContinue
+Ensure-Directory -Path $confDir
+
+if ($ReplaceAllNginxVhosts) {
+    Write-Warning 'ReplaceAllNginxVhosts: removing all conf.d\*.conf files before rendering the winginx default vhost.'
+    Get-ChildItem -Path $confDir -Filter '*.conf' -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+}
 
 $defaultExtensions = Get-DefaultExtensions
 $extensionLines = Get-ExtensionLines -PhpRootPath $phpRoot -DesiredExtensions $defaultExtensions
 
-Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'nginx.conf.tpl') -OutputPath (Join-Path -Path $nginxRoot -ChildPath 'conf\nginx.conf') -Variables @{
-    NGINX_LOG_DIR    = ($nginxRoot.Replace('\', '/')) + '/logs'
-    NGINX_ROOT       = $nginxRoot.Replace('\', '/')
-    NGINX_TEMP_DIR   = ($nginxRoot.Replace('\', '/')) + '/temp'
-    PHP_FASTCGI_HOST = $FastCgiHost
-    PHP_FASTCGI_PORT = $FastCgiPort
+$nginxMainConfigPath = Join-Path -Path $nginxRoot -ChildPath 'conf\nginx.conf'
+$shouldRefreshMainConfig = $RefreshNginxMainConfig -or -not (Test-Path -LiteralPath $nginxMainConfigPath)
+if ($shouldRefreshMainConfig) {
+    Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'nginx.conf.tpl') -OutputPath $nginxMainConfigPath -Variables @{
+        NGINX_LOG_DIR    = ($nginxRoot.Replace('\', '/')) + '/logs'
+        NGINX_ROOT       = $nginxRoot.Replace('\', '/')
+        NGINX_TEMP_DIR   = ($nginxRoot.Replace('\', '/')) + '/temp'
+        PHP_FASTCGI_HOST = $FastCgiHost
+        PHP_FASTCGI_PORT = $FastCgiPort
+    }
+}
+else {
+    Write-Host "Preserving existing nginx main config at '$nginxMainConfigPath' (pass -RefreshNginxMainConfig to replace)."
 }
 
-Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'conf.d\default.conf.tpl') -OutputPath (Join-Path -Path $nginxRoot -ChildPath 'conf\conf.d\default.conf') -Variables @{
-    HTTP_PORT   = $HttpPort
-    SERVER_NAME = $ServerName
-    WEB_ROOT    = $resolvedWebRoot.Replace('\', '/')
-    PHP_ROOT    = $phpRoot.Replace('\', '/')
+$defaultVhostPath = Join-Path -Path $confDir -ChildPath 'default.conf'
+$shouldRefreshDefaultVhost = $ReplaceAllNginxVhosts -or $RefreshDefaultVhost -or -not (Test-Path -LiteralPath $defaultVhostPath)
+if ($shouldRefreshDefaultVhost) {
+    Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'conf.d\default.conf.tpl') -OutputPath $defaultVhostPath -Variables @{
+        HTTP_PORT   = $HttpPort
+        SERVER_NAME = $ServerName
+        WEB_ROOT    = $resolvedWebRoot.Replace('\', '/')
+        PHP_ROOT    = $phpRoot.Replace('\', '/')
+    }
+}
+else {
+    Write-Host "Preserving existing vhost files in '$confDir' (pass -RefreshDefaultVhost to replace default.conf only)."
 }
 
 Render-Template -TemplatePath (Join-Path -Path $TemplateRoot -ChildPath 'php.ini.tpl') -OutputPath (Join-Path -Path $phpRoot -ChildPath 'php.ini') -Variables @{
