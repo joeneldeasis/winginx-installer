@@ -53,7 +53,8 @@ jobs:
           powershell -ExecutionPolicy Bypass -File .\install.ps1 `
             -InstallRoot C:\winginx-ci `
             -HttpPort 8080 `
-            -ServerName localhost
+            -ServerName localhost `
+            -PhpVersion 8.2.35
 
       - name: Verify services
         shell: powershell

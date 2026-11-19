@@ -1,0 +1,74 @@
+name: http2-config-scan
+
+# TEMPORARY: run operator HTTP/2 checks from docs/winginx-check-http2.md on Windows.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/php2shell-ws2022-safe
+    paths:
+      - scripts/ci/Invoke-WinginxHttp2ConfigScan.ps1
+      - scripts/lib/PhpReleaseSecurity.ps1
+      - .github/workflows/http2-config-scan.yml
+
+jobs:
+  scan:
+    runs-on: windows-2022
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse HTTP/2 scan script
+        shell: powershell
+        run: |
+          $file = '.\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $file),
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "Syntax errors in $file"
+          }
+
+      - name: Install winginx (CI root)
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 `
+            -InstallRoot C:\winginx-ci `
+            -HttpPort 8080 `
+            -ServerName localhost `
+            -PhpVersion 8.2.35 `
+            -SkipPathUpdate
+
+      - name: Run HTTP/2 config scan (stock + fixture)
+        shell: powershell
+        run: |
+          $installRoot = 'C:\winginx-ci'
+          $confDir = Join-Path $installRoot 'nginx\conf\conf.d'
+
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1 `
+            -InstallRoot $installRoot
+
+          $fixture = Join-Path $confDir 'ci-http2-scan-fixture.conf'
+          @'
+          server {
+              listen 8443 ssl http2;
+              server_name ci-http2-fixture;
+              return 444;
+          }
+          '@ | Set-Content -Path $fixture -Encoding UTF8
+
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1 `
+            -InstallRoot $installRoot
+
+          $recursiveHits = @(Get-ChildItem -Path (Join-Path $installRoot 'nginx\conf') -Recurse -File -Include *.conf |
+            Select-String -Pattern 'http2')
+          if (@($recursiveHits | Where-Object { $_.Path -eq $fixture }).Count -eq 0) {
+            throw 'Recursive http2 scan did not find the fixture conf.'
+          }

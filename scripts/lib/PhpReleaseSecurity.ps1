@@ -4,6 +4,20 @@ function Get-PhpSecurityConfigPath {
     return Join-Path -Path $RepoRoot -ChildPath 'config\php-security.psd1'
 }
 
+function Get-PhpSemverVersion {
+    param([string]$Version)
+
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        return $Version
+    }
+
+    if ($Version -match '^(\d+\.\d+\.\d+)') {
+        return $Matches[1]
+    }
+
+    return $Version
+}
+
 function Get-PhpReleaseLine {
     param([string]$VersionSelector)
 
@@ -51,8 +65,9 @@ function Resolve-PatchedPhpVersion {
         return $ResolvedVersion
     }
 
-    if ([version]$ResolvedVersion -ge [version]$minimum) {
-        return $ResolvedVersion
+    $resolvedSemver = Get-PhpSemverVersion -Version $ResolvedVersion
+    if ([version]$resolvedSemver -ge [version]$minimum) {
+        return $resolvedSemver
     }
 
     if ($VersionSelector -match '^\d+\.\d+\.\d+$') {
