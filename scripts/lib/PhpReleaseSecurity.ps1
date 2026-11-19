@@ -28,6 +28,137 @@ function Get-PhpReleaseLine {
     throw "Unable to determine PHP release line from '$VersionSelector'."
 }
 
+function Get-PhpWindowsBuildKey {
+    param(
+        [string]$ThreadModel,
+        [string]$Compiler,
+        [string]$CpuArch
+    )
+
+    $threadPrefix = if ($ThreadModel -eq 'nts') { 'nts' } else { 'ts' }
+    return "$threadPrefix-$Compiler-$CpuArch"
+}
+
+function Get-PhpWindowsReleasesManifest {
+    param([string]$BaseUrl)
+
+    $manifestUri = "$BaseUrl/releases.json"
+    $response = Invoke-WebRequest -Uri $manifestUri -UseBasicParsing
+    return ($response.Content | ConvertFrom-Json)
+}
+
+function Get-PhpArchiveNameFromParts {
+    param(
+        [string]$Version,
+        [string]$ThreadModel,
+        [string]$Compiler,
+        [string]$CpuArch
+    )
+
+    $threadSegment = if ($ThreadModel -eq 'nts') { '-nts' } else { '' }
+    return "php-$Version$threadSegment-Win32-$Compiler-$CpuArch.zip"
+}
+
+function Resolve-PhpWindowsZipFileName {
+    param(
+        [string]$VersionSelector,
+        [string]$ThreadModel,
+        [string]$Compiler,
+        [string]$CpuArch,
+        [string]$BaseUrl,
+        [string]$RepoRoot
+    )
+
+    $manifest = Get-PhpWindowsReleasesManifest -BaseUrl $BaseUrl
+    $releaseLine = Get-PhpReleaseLine -VersionSelector $VersionSelector
+    if (-not ($manifest.PSObject.Properties.Name -contains $releaseLine)) {
+        throw "PHP release line '$releaseLine' was not found in releases.json."
+    }
+
+    $release = $manifest.$releaseLine
+    $buildKey = Get-PhpWindowsBuildKey -ThreadModel $ThreadModel -Compiler $Compiler -CpuArch $CpuArch
+    if (-not ($release.PSObject.Properties.Name -contains $buildKey)) {
+        throw "PHP build '$buildKey' is not available for release line '$releaseLine'."
+    }
+
+    $manifestVersion = [string]$release.version
+    $resolvedSemver = Resolve-PatchedPhpVersion -VersionSelector $VersionSelector -ResolvedVersion $manifestVersion -RepoRoot $RepoRoot
+    $zipPath = [string]$release.$buildKey.zip.path
+    if ([string]::IsNullOrWhiteSpace($zipPath)) {
+        $zipPath = Get-PhpArchiveNameFromParts -Version $manifestVersion -ThreadModel $ThreadModel -Compiler $Compiler -CpuArch $CpuArch
+    }
+
+    if ($VersionSelector -match '^\d+\.\d+\.\d+$') {
+        $pinnedSemver = Get-PhpSemverVersion -Version $VersionSelector
+        if ([version]$resolvedSemver -lt [version]$pinnedSemver) {
+            throw "The PHP build on the Windows mirror ($manifestVersion) is below pinned $pinnedSemver."
+        }
+    }
+
+    return @{
+        ZipFileName      = $zipPath
+        ResolvedSemver   = $resolvedSemver
+        ManifestVersion  = $manifestVersion
+    }
+}
+
+function Find-OfflinePhpZipInPackageRoot {
+    param(
+        [string]$PackageRootPath,
+        [string]$VersionSelector,
+        [string]$ThreadModel,
+        [string]$Compiler,
+        [string]$CpuArch,
+        [string]$RepoRoot
+    )
+
+    if (-not (Test-Path -Path $PackageRootPath)) {
+        return $null
+    }
+
+    $candidates = New-Object System.Collections.Generic.List[object]
+
+    if ($VersionSelector -match '^\d+\.\d+\.\d+(?:-\d+)?$') {
+        $exact = Get-PhpArchiveNameFromParts -Version $VersionSelector -ThreadModel $ThreadModel -Compiler $Compiler -CpuArch $CpuArch
+        $exactPath = Join-Path -Path $PackageRootPath -ChildPath $exact
+        if (Test-Path -Path $exactPath) {
+            [void]$candidates.Add([pscustomobject]@{
+                    Path   = $exactPath
+                    Semver = Get-PhpSemverVersion -Version $VersionSelector
+                })
+        }
+    }
+
+    $threadSegment = if ($ThreadModel -eq 'nts') { '-nts' } else { '' }
+    $pattern = "^php-(\d+\.\d+\.\d+(?:-\d+)?)$([regex]::Escape($threadSegment))-Win32-$([regex]::Escape($Compiler))-$([regex]::Escape($CpuArch))\.zip$"
+
+    Get-ChildItem -Path $PackageRootPath -File -Filter 'php-*.zip' -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Name -match $pattern) {
+            $buildVersion = $Matches[1]
+            $semver = Get-PhpSemverVersion -Version $buildVersion
+            try {
+                $floor = Resolve-PatchedPhpVersion -VersionSelector $VersionSelector -ResolvedVersion $semver -RepoRoot $RepoRoot
+                if ([version]$semver -ge [version]$floor) {
+                    [void]$candidates.Add([pscustomobject]@{
+                            Path    = $_.FullName
+                            Semver  = $semver
+                            Version = $buildVersion
+                        })
+                }
+            }
+            catch {
+            }
+        }
+    }
+
+    if ($candidates.Count -gt 0) {
+        $picked = @($candidates | Sort-Object { [version]$_.Semver } -Descending | Select-Object -First 1)
+        return $picked[0].Path
+    }
+
+    return $null
+}
+
 function Get-Php2ShellMinimumVersion {
     param(
         [string]$ReleaseLine,

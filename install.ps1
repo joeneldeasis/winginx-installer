@@ -146,7 +146,17 @@ function Resolve-OfflinePhpArchiveForVersion {
     $archiveName = "php-$Version$threadSegment-Win32-$Compiler-$CpuArch.zip"
     $archivePath = Join-Path -Path $PackageRootPath -ChildPath $archiveName
     if (-not (Test-Path -Path $archivePath)) {
-        throw "Offline PHP archive '$archiveName' was not found in '$PackageRootPath'. Refresh packages with scripts\fetch-offline-packages.ps1."
+        $escapedVersion = [regex]::Escape($Version)
+        $altPattern = "^php-$escapedVersion(?:-\d+)?$([regex]::Escape($threadSegment))-Win32-$([regex]::Escape($Compiler))-$([regex]::Escape($CpuArch))\.zip$"
+        $alt = @(Get-ChildItem -Path $PackageRootPath -File -Filter 'php-*.zip' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match $altPattern } |
+            Sort-Object Name -Descending |
+            Select-Object -First 1)
+        if ($alt.Count -eq 0) {
+            throw "Offline PHP archive '$archiveName' was not found in '$PackageRootPath'. Refresh packages with scripts\fetch-offline-packages.ps1."
+        }
+
+        $archivePath = $alt[0].FullName
     }
 
     return @{
@@ -188,14 +198,36 @@ function Resolve-OfflinePhpArchive {
     if ($VersionSelector -match '^\d+\.\d+\.\d+$') {
         $exactName = "php-$VersionSelector$threadSegment-$suffix"
         $exactPath = Join-Path -Path $PackageRootPath -ChildPath $exactName
-        if (-not (Test-Path -Path $exactPath)) {
-            throw "Offline PHP archive '$exactName' was not found in '$PackageRootPath'."
+        if (Test-Path -Path $exactPath) {
+            return @{
+                Version = $VersionSelector
+                Path    = $exactPath
+            }
         }
 
-        return @{
-            Version = $VersionSelector
-            Path    = $exactPath
+        $buildPattern = "^php-($([regex]::Escape($VersionSelector))(?:-\d+)?)$([regex]::Escape($threadSegment))-$([regex]::Escape($suffix.Replace('.zip', '')))\.zip$"
+        $buildCandidates = New-Object System.Collections.Generic.List[object]
+        Get-ChildItem -Path $PackageRootPath -File -Filter 'php-*.zip' -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Name -match $buildPattern) {
+                $buildLabel = $Matches[1]
+                [void]$buildCandidates.Add([pscustomobject]@{
+                        Path    = $_.FullName
+                        Version = $buildLabel
+                        Semver  = Get-PhpSemverVersion -Version $buildLabel
+                    })
+            }
         }
+
+        $buildSorted = @($buildCandidates | Sort-Object { [version]$_.Semver } -Descending)
+        if ($buildSorted.Count -gt 0) {
+            $picked = $buildSorted[0]
+            return @{
+                Version = [string]$picked.Semver
+                Path    = [string]$picked.Path
+            }
+        }
+
+        throw "Offline PHP archive '$exactName' (or a Windows build such as php-$VersionSelector-1...) was not found in '$PackageRootPath'."
     }
 
     $pattern = "^php-($([regex]::Escape($VersionSelector))\.\d+(?:\.\d+)?)$([regex]::Escape($threadSegment))-$([regex]::Escape($suffix.Replace('.zip', '')))\.zip$"
@@ -1188,10 +1220,18 @@ if ($Offline) {
     Write-Host "Offline NSSM archive: $nssmOfflineArchive"
 }
 else {
-    $resolvedPhpVersion = Resolve-LatestPhpVersion -VersionSelector $PhpVersion -ThreadModel $PhpThreadModel -Compiler $PhpCompiler -CpuArch $Architecture -BaseUrl $PhpBaseUrl
-    $phpArchiveName = Get-PhpArchiveName -Version $resolvedPhpVersion -ThreadModel $PhpThreadModel -Compiler $PhpCompiler -CpuArch $Architecture
+    $phpZip = Resolve-PhpWindowsZipFileName `
+        -VersionSelector $PhpVersion `
+        -ThreadModel $PhpThreadModel `
+        -Compiler $PhpCompiler `
+        -CpuArch $Architecture `
+        -BaseUrl $PhpBaseUrl `
+        -RepoRoot $ScriptRoot
+    $resolvedPhpVersion = $phpZip.ResolvedSemver
+    $phpArchiveName = $phpZip.ZipFileName
     $phpArchivePath = Join-Path -Path $downloadsRoot -ChildPath $phpArchiveName
     $phpArchiveUri = "$PhpBaseUrl/$phpArchiveName"
+    Write-Host "PHP Windows ZIP: $phpArchiveName (manifest $($phpZip.ManifestVersion))"
 
     $nginxArchiveName = "nginx-$NginxVersion.zip"
     $nginxArchivePath = Join-Path -Path $downloadsRoot -ChildPath $nginxArchiveName

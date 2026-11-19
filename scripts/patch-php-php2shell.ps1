@@ -168,6 +168,7 @@ if (-not (Test-Path -Path $phpRoot)) {
 }
 
 $targetVersion = Resolve-PatchedPhpVersion -VersionSelector $PhpVersion -ResolvedVersion $PhpVersion -RepoRoot $RepoRoot
+$phpZipMeta = $null
 $detectedVersion = Get-InstalledPhpVersion -PhpRoot $phpRoot
 $currentVersion = $detectedVersion
 if (-not [string]::IsNullOrWhiteSpace($SimulateInstalledVersion)) {
@@ -198,19 +199,41 @@ if (-not (Test-Path -Path $stopScript) -or -not (Test-Path -Path $startScript)) 
 Enable-TlsSecurityProtocols
 Ensure-Directory -Path $downloadsRoot
 
-$phpArchiveName = Get-PhpArchiveName -Version $targetVersion -ThreadModel $PhpThreadModel -Compiler $PhpCompiler -CpuArch $Architecture
 if ($Offline) {
     if ([string]::IsNullOrWhiteSpace($PackageRoot)) {
         $PackageRoot = Join-Path -Path $RepoRoot -ChildPath 'packages'
     }
 
-    $phpArchivePath = Join-Path -Path $PackageRoot -ChildPath $phpArchiveName
-    if (-not (Test-Path -Path $phpArchivePath)) {
-        throw "Offline PHP archive '$phpArchiveName' was not found in '$PackageRoot'. Run scripts\fetch-offline-packages.ps1 with -PhpVersion $targetVersion first."
+    $phpArchivePath = Find-OfflinePhpZipInPackageRoot `
+        -PackageRootPath $PackageRoot `
+        -VersionSelector $PhpVersion `
+        -ThreadModel $PhpThreadModel `
+        -Compiler $PhpCompiler `
+        -CpuArch $Architecture `
+        -RepoRoot $RepoRoot
+    if ([string]::IsNullOrWhiteSpace($phpArchivePath)) {
+        throw "Offline PHP archive for '$PhpVersion' ($PhpThreadModel/$PhpCompiler/$Architecture) was not found in '$PackageRoot'. Run scripts\fetch-offline-packages.ps1 first."
     }
+    $phpArchiveName = Split-Path -Path $phpArchivePath -Leaf
 }
 else {
+  try {
+        $phpZipMeta = Resolve-PhpWindowsZipFileName `
+            -VersionSelector $PhpVersion `
+            -ThreadModel $PhpThreadModel `
+            -Compiler $PhpCompiler `
+            -CpuArch $Architecture `
+            -BaseUrl $PhpBaseUrl `
+            -RepoRoot $RepoRoot
+        $targetVersion = $phpZipMeta.ResolvedSemver
+        $phpArchiveName = $phpZipMeta.ZipFileName
+    }
+    catch {
+        $phpArchiveName = Get-PhpArchiveName -Version $targetVersion -ThreadModel $PhpThreadModel -Compiler $PhpCompiler -CpuArch $Architecture
+    }
+
     $phpArchivePath = Join-Path -Path $downloadsRoot -ChildPath $phpArchiveName
+    Write-Host "Downloading $PhpBaseUrl/$phpArchiveName"
     Download-File -Uri "$PhpBaseUrl/$phpArchiveName" -DestinationPath $phpArchivePath
 }
 

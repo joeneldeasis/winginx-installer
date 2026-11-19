@@ -128,15 +128,17 @@ function Download-FileWithFallbacks {
 Enable-TlsSecurityProtocols
 Ensure-Directory -Path $PackageRoot
 
-$resolvedPhpVersion = Resolve-LatestPhpVersion `
+$phpZip = Resolve-PhpWindowsZipFileName `
     -VersionSelector $PhpVersion `
     -ThreadModel $PhpThreadModel `
     -Compiler $PhpCompiler `
     -CpuArch $Architecture `
-    -BaseUrl $PhpBaseUrl
-
-$phpArchiveName = Get-PhpArchiveName -Version $resolvedPhpVersion -ThreadModel $PhpThreadModel -Compiler $PhpCompiler -CpuArch $Architecture
+    -BaseUrl $PhpBaseUrl `
+    -RepoRoot $RepoRoot
+$resolvedPhpVersion = $phpZip.ResolvedSemver
+$phpArchiveName = $phpZip.ZipFileName
 $phpArchivePath = Join-Path -Path $PackageRoot -ChildPath $phpArchiveName
+Write-Host "PHP Windows ZIP: $phpArchiveName (manifest $($phpZip.ManifestVersion))"
 $nginxArchiveName = "nginx-$NginxVersion.zip"
 $nginxArchivePath = Join-Path -Path $PackageRoot -ChildPath $nginxArchiveName
 $nssmArchivePath = Join-Path -Path $PackageRoot -ChildPath "nssm-$NssmVersion.zip"
