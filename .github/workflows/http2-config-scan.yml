@@ -44,18 +44,24 @@ jobs:
           $extractRoot = Join-Path $env:TEMP "nginx-$nginxVersion-extract"
           $nginxRoot = Join-Path $installRoot 'nginx'
 
-          if (Test-Path $extractRoot) {
-            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+          if (Test-Path $installRoot) {
+            Remove-Item -LiteralPath $installRoot -Recurse -Force
           }
 
-          if (Test-Path $nginxRoot) {
-            Remove-Item -LiteralPath $nginxRoot -Recurse -Force
+          New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+
+          if (Test-Path $extractRoot) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force
           }
 
           Invoke-WebRequest -Uri "https://nginx.org/download/nginx-$nginxVersion.zip" -OutFile $zipPath -UseBasicParsing
           Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
           $sourceRoot = Join-Path $extractRoot "nginx-$nginxVersion"
-          Move-Item -LiteralPath $sourceRoot -Destination $nginxRoot
+          if (-not (Test-Path -LiteralPath $sourceRoot)) {
+            throw "Extracted nginx folder was not found: $sourceRoot"
+          }
+
+          Copy-Item -LiteralPath $sourceRoot -Destination $nginxRoot -Recurse -Force
 
           $confDir = Join-Path $nginxRoot 'conf\conf.d'
           New-Item -ItemType Directory -Force -Path $confDir | Out-Null
