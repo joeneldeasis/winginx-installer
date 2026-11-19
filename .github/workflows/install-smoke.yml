@@ -26,6 +26,7 @@ jobs:
             '.\scripts\patch-php-php2shell.ps1',
             '.\scripts\patch-php-ws2022-safe.ps1',
             '.\scripts\troubleshoot-winginx.ps1',
+            '.\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1',
             '.\scripts\lib\PhpReleaseSecurity.ps1'
           )
 
@@ -82,6 +83,41 @@ jobs:
           if ($response.Content -notmatch 'PHP 8\.2') {
             throw "Health page did not report PHP 8.2"
           }
+
+      # TEMPORARY: smoke-test operator HTTP/2 config scan (docs/winginx-check-http2.md). Remove when no longer needed.
+      - name: Smoke test HTTP/2 config scan commands
+        shell: powershell
+        run: |
+          $installRoot = 'C:\winginx-ci'
+          $confDir = Join-Path $installRoot 'nginx\conf\conf.d'
+
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1 `
+            -InstallRoot $installRoot
+
+          $fixture = Join-Path $confDir 'ci-http2-scan-fixture.conf'
+          @'
+          server {
+              listen 8443 ssl http2;
+              server_name ci-http2-fixture;
+              return 444;
+          }
+          '@ | Set-Content -Path $fixture -Encoding UTF8
+
+          $hits = @(Select-String -Path $fixture -Pattern 'http2')
+          if ($hits.Count -eq 0) {
+            throw 'Fixture conf with http2 was not written correctly.'
+          }
+
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1 `
+            -InstallRoot $installRoot
+
+          $recursiveHits = @(Get-ChildItem -Path (Join-Path $installRoot 'nginx\conf') -Recurse -File -Include *.conf |
+            Select-String -Pattern 'http2')
+          if (@($recursiveHits | Where-Object { $_.Path -eq $fixture }).Count -eq 0) {
+            throw 'Recursive http2 scan did not find the fixture conf.'
+          }
+
+          Remove-Item -LiteralPath $fixture -Force
 
       - name: Re-run installer over existing install
         shell: powershell
