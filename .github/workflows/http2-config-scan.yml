@@ -8,13 +8,12 @@ on:
       - fix/php2shell-ws2022-safe
     paths:
       - scripts/ci/Invoke-WinginxHttp2ConfigScan.ps1
-      - scripts/lib/PhpReleaseSecurity.ps1
       - .github/workflows/http2-config-scan.yml
 
 jobs:
   scan:
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -36,15 +35,54 @@ jobs:
             throw "Syntax errors in $file"
           }
 
-      - name: Install winginx (CI root)
+      - name: Prepare minimal nginx tree (scan only)
         shell: powershell
         run: |
-          powershell -ExecutionPolicy Bypass -File .\install.ps1 `
-            -InstallRoot C:\winginx-ci `
-            -HttpPort 8080 `
-            -ServerName localhost `
-            -PhpVersion 8.2.35 `
-            -SkipPathUpdate
+          $installRoot = 'C:\winginx-ci'
+          $nginxVersion = '1.31.2'
+          $zipPath = Join-Path $env:TEMP "nginx-$nginxVersion.zip"
+          $extractRoot = Join-Path $env:TEMP "nginx-$nginxVersion-extract"
+          $nginxRoot = Join-Path $installRoot 'nginx'
+
+          if (Test-Path $extractRoot) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+          }
+
+          if (Test-Path $nginxRoot) {
+            Remove-Item -LiteralPath $nginxRoot -Recurse -Force
+          }
+
+          Invoke-WebRequest -Uri "https://nginx.org/download/nginx-$nginxVersion.zip" -OutFile $zipPath -UseBasicParsing
+          Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
+          $sourceRoot = Join-Path $extractRoot "nginx-$nginxVersion"
+          Move-Item -LiteralPath $sourceRoot -Destination $nginxRoot
+
+          $confDir = Join-Path $nginxRoot 'conf\conf.d'
+          New-Item -ItemType Directory -Force -Path $confDir | Out-Null
+
+          @'
+          worker_processes  auto;
+          error_log  logs/error.log warn;
+          pid        logs/nginx.pid;
+
+          events {
+              worker_connections  1024;
+          }
+
+          http {
+              include       mime.types;
+              default_type  application/octet-stream;
+              include conf.d/*.conf;
+          }
+          '@ | Set-Content -Path (Join-Path $nginxRoot 'conf\nginx.conf') -Encoding UTF8
+
+          @'
+          server {
+              listen 8080;
+              server_name localhost;
+              location / { return 200 "winginx-ci-http2-scan\n"; add_header Content-Type text/plain; }
+          }
+          '@ | Set-Content -Path (Join-Path $confDir 'default.conf') -Encoding UTF8
 
       - name: Run HTTP/2 config scan (stock + fixture)
         shell: powershell
