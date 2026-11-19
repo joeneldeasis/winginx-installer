@@ -112,8 +112,9 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ci\Invoke-WinginxHttp2ConfigScan.ps1 `
             -InstallRoot $installRoot
 
+          $http2Pattern = '(?i)(^\s*listen\s+.*\bhttp2\b|^\s*http2\s+(on|off)\s*;)'
           $recursiveHits = @(Get-ChildItem -Path (Join-Path $installRoot 'nginx\conf') -Recurse -File -Include *.conf |
-            Select-String -Pattern 'http2')
+            Select-String -Pattern $http2Pattern)
           if (@($recursiveHits | Where-Object { $_.Path -eq $fixture }).Count -eq 0) {
             throw 'Recursive http2 scan did not find the fixture conf.'
           }
