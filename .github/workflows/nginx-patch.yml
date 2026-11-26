@@ -85,9 +85,13 @@ jobs:
             throw "nginx patch script exited $LASTEXITCODE"
           }
 
-          $versionOutput = & (Join-Path $nginxRoot 'nginx.exe') -v 2>&1 | Out-String
+          $nginxExe = Join-Path $nginxRoot 'nginx.exe'
+          $versionOutput = cmd.exe /c "`"$nginxExe`" -v 2>&1"
           Write-Host $versionOutput
-          if ($versionOutput -notmatch "nginx/$([regex]::Escape($expectedVersion))") {
+          if ($LASTEXITCODE -ne 0) {
+            throw "nginx -v exited $LASTEXITCODE. Output: $versionOutput"
+          }
+          if (($versionOutput | Out-String) -notmatch "nginx/$([regex]::Escape($expectedVersion))") {
             throw "Expected nginx/$expectedVersion after patch. Got: $versionOutput"
           }
 
