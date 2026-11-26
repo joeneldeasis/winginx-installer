@@ -1,0 +1,109 @@
+name: nginx-patch
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/nginx-cve-2026-123007
+    paths:
+      - scripts/patch-nginx-cve-2026-123007.ps1
+      - .github/workflows/nginx-patch.yml
+
+jobs:
+  patch:
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch an older nginx install without changing conf
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installRoot = 'C:\winginx-nginx-patch-ci'
+          $oldVersion = '1.31.9'
+          $expectedVersion = '1.31.10'
+          $nginxRoot = Join-Path $installRoot 'nginx'
+          $zipPath = Join-Path $env:TEMP "nginx-$oldVersion.zip"
+          $extractRoot = Join-Path $env:TEMP "nginx-$oldVersion-seed"
+
+          if (Test-Path -LiteralPath $installRoot) {
+            Remove-Item -LiteralPath $installRoot -Recurse -Force
+          }
+          if (Test-Path -LiteralPath $extractRoot) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+          }
+
+          Write-Host "Seeding nginx $oldVersion at $installRoot"
+          Invoke-WebRequest -Uri "https://nginx.org/download/nginx-$oldVersion.zip" -OutFile $zipPath -UseBasicParsing
+          Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
+          $sourceRoot = Join-Path $extractRoot "nginx-$oldVersion"
+          if (-not (Test-Path -LiteralPath $sourceRoot)) {
+            throw "Extracted nginx folder was not found: $sourceRoot"
+          }
+          New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+          Copy-Item -LiteralPath $sourceRoot -Destination $nginxRoot -Recurse -Force
+
+          $confDir = Join-Path $nginxRoot 'conf\conf.d'
+          New-Item -ItemType Directory -Force -Path $confDir | Out-Null
+          $customConf = Join-Path $confDir 'keep-this.conf'
+          $customBody = @"
+          # winginx-nginx-patch-ci keep this file
+          server {
+              listen 127.0.0.1:9;
+              server_name winginx-nginx-patch-ci.example;
+              return 200 "keep-this";
+          }
+          "@
+          Set-Content -LiteralPath $customConf -Value $customBody -Encoding ascii
+
+          function Get-ConfManifest {
+            param([string]$Root)
+            $manifest = @{}
+            Get-ChildItem -LiteralPath (Join-Path $Root 'conf') -File -Recurse -Force | ForEach-Object {
+              $relative = $_.FullName.Substring($Root.Length).TrimStart('\')
+              $manifest[$relative] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+            }
+            return $manifest
+          }
+
+          $before = Get-ConfManifest -Root $nginxRoot
+          if (-not $before.ContainsKey('conf\conf.d\keep-this.conf')) {
+            throw 'Custom conf.d file was not seeded.'
+          }
+          Write-Host ("Seeded {0} nginx conf file(s)." -f $before.Count)
+
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File .\scripts\patch-nginx-cve-2026-123007.ps1 -InstallRoot $installRoot
+          if ($LASTEXITCODE -ne 0) {
+            throw "nginx patch script exited $LASTEXITCODE"
+          }
+
+          $versionOutput = & (Join-Path $nginxRoot 'nginx.exe') -v 2>&1 | Out-String
+          Write-Host $versionOutput
+          if ($versionOutput -notmatch "nginx/$([regex]::Escape($expectedVersion))") {
+            throw "Expected nginx/$expectedVersion after patch. Got: $versionOutput"
+          }
+
+          $after = Get-ConfManifest -Root $nginxRoot
+          foreach ($relativePath in $before.Keys) {
+            if (-not $after.ContainsKey($relativePath)) {
+              throw "Configuration file removed: $relativePath"
+            }
+            if ($before[$relativePath] -ne $after[$relativePath]) {
+              throw "Configuration file changed: $relativePath"
+            }
+          }
+          foreach ($relativePath in $after.Keys) {
+            if (-not $before.ContainsKey($relativePath)) {
+              throw "Configuration file added: $relativePath"
+            }
+          }
+
+          $kept = Get-Content -LiteralPath $customConf -Raw
+          if ($kept -notmatch 'winginx-nginx-patch-ci keep this file') {
+            throw 'Custom conf.d contents were replaced.'
+          }
+
+          Write-Host 'nginx patch test passed: nginx.exe updated and conf tree unchanged.'
