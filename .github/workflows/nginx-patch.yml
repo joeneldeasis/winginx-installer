@@ -46,6 +46,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
           Copy-Item -LiteralPath $sourceRoot -Destination $nginxRoot -Recurse -Force
 
+          $mainConf = Join-Path $nginxRoot 'conf\nginx.conf'
+          $mainText = Get-Content -LiteralPath $mainConf -Raw
+          $mainText = $mainText -replace 'listen\s+80;', 'listen 127.0.0.1:8080;'
+          Set-Content -LiteralPath $mainConf -Value $mainText -Encoding ascii
+
           $confDir = Join-Path $nginxRoot 'conf\conf.d'
           New-Item -ItemType Directory -Force -Path $confDir | Out-Null
           $customConf = Join-Path $confDir 'keep-this.conf'
