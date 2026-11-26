@@ -496,10 +496,26 @@ The script logs **COMMAND:** lines, scans `conf.d` for duplicate `listen` + `ser
 
 Switches: `-SkipPatch`, `-SkipHttpTests`, `-StabilizeNginx`, `-DisableDuplicateVhosts`, `-RefreshPhpIniIfMissing` (each included in `-AutoFix`). Multi-block duplicate vhosts still need manual edits.
 
+## nginx HTTP/2 patch (CVE-2026-123007)
+
+Existing installs keep their configuration. This script detects the default install (`C:\winginx\nginx\nginx.exe`) or, if that folder is missing, the directory registered for the `winginx-nginx` service. It stops nginx, replaces **only** `nginx.exe` with **1.31.10**, runs `nginx -t` against the current `conf\nginx.conf`, and checks that every file under `nginx\conf` is unchanged. It does not delete `conf`, `conf.d`, logs, html, ssl, or temp.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\patch-nginx-cve-2026-123007.ps1
+```
+
+Non-default root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\patch-nginx-cve-2026-123007.ps1 `
+  -InstallRoot D:\winginx
+```
+
 ## Notes
 
 - The default PHP build is **8.2.35** (php2shell fix). Pass `-PhpVersion 8.2` to follow the latest `8.2.x` from `releases.json` (never below **8.2.35**).
 - `nginx` version defaults to **1.31.9** (HTTP/2 security fixes including CVE-2026-123007). Use `-NginxVersion` to pin another build.
+- To patch nginx on an existing server without touching configuration, use `scripts\patch-nginx-cve-2026-123007.ps1`. It detects `C:\winginx` or the `winginx-nginx` service directory and replaces only `nginx.exe`.
 - Re-running the installer updates PHP by default and preserves **custom** nginx files under `nginx\conf\` and `nginx\conf\conf.d\` (only creates `nginx.conf` / `default.conf` when missing). Pass `-RefreshNginxMainConfig` or `-RefreshDefaultVhost` to replace those winginx templates; `-ReplaceAllNginxVhosts` restores the old destructive wipe of all `conf.d\*.conf` (avoid on production).
 - A full nginx binary replace (without `-SkipNginxReplace`) backs up and restores the entire `nginx\conf` tree so `conf.d` vhosts survive.
 - Service logs are written to `nginx\logs\*.log` and `php\logs\*.log`.
