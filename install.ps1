@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$InstallRoot = 'C:\winginx',
-    [string]$PhpVersion = '8.2.35',
-    [string]$NginxVersion = '1.31.9',
+    [string]$PhpVersion = '8.2.36',
+    [string]$NginxVersion = '1.31.10',
     [ValidateSet('x64', 'x86')]
     [string]$Architecture = 'x64',
     [ValidateSet('nts', 'ts')]
@@ -120,7 +120,7 @@ function Resolve-LatestPhpVersion {
 
     $manifest = Get-PhpReleasesManifest -BaseUrl $BaseUrl
     if (-not ($manifest.PSObject.Properties.Name -contains $VersionSelector)) {
-        throw "PHP release line '$VersionSelector' was not found in releases.json. Supply an explicit -PhpVersion like '8.2.35'."
+        throw "PHP release line '$VersionSelector' was not found in releases.json. Supply an explicit -PhpVersion like '8.2.36'."
     }
 
     $release = $manifest.$VersionSelector

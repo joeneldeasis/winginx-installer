@@ -40,7 +40,7 @@ jobs:
         shell: powershell
         run: |
           $installRoot = 'C:\winginx-ci'
-          $nginxVersion = '1.31.9'
+          $nginxVersion = '1.31.10'
           $zipPath = Join-Path $env:TEMP "nginx-$nginxVersion.zip"
           $extractRoot = Join-Path $env:TEMP "nginx-$nginxVersion-extract"
           $nginxRoot = Join-Path $installRoot 'nginx'

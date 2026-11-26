@@ -54,7 +54,7 @@ jobs:
             -InstallRoot C:\winginx-ci `
             -HttpPort 8080 `
             -ServerName localhost `
-            -PhpVersion 8.2.35
+            -PhpVersion 8.2.36
 
       - name: Verify services
         shell: powershell
@@ -128,8 +128,8 @@ jobs:
             -InstallRoot C:\winginx-ci `
             -HttpPort 8080 `
             -ServerName localhost `
-            -PhpVersion 8.2.35 `
-            -NginxVersion 1.31.9
+            -PhpVersion 8.2.36 `
+            -NginxVersion 1.31.10
           if ($LASTEXITCODE -ne 0) {
             throw "Re-install over existing winginx-ci failed with exit code $LASTEXITCODE."
           }

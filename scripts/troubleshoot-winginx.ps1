@@ -4,7 +4,7 @@ param(
     [string]$LogPath = '',
     [string]$NginxServiceName = 'winginx-nginx',
     [string]$PhpServiceName = 'winginx-php',
-    [string]$PhpVersion = '8.2.35',
+    [string]$PhpVersion = '8.2.36',
     [switch]$SkipPatch,
     [switch]$SkipHttpTests,
     [int]$HttpTimeoutSeconds = 15,

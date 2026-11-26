@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$InstallRoot = 'C:\winginx',
-    [string]$PhpVersion = '8.2.35',
+    [string]$PhpVersion = '8.2.36',
     [ValidateSet('x64', 'x86')]
     [string]$Architecture = 'x64',
     [ValidateSet('nts', 'ts')]

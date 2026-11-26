@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$PackageRoot = '',
-    [string]$PhpVersion = '8.2.35',
-    [string]$NginxVersion = '1.31.9',
+    [string]$PhpVersion = '8.2.36',
+    [string]$NginxVersion = '1.31.10',
     [ValidateSet('x64', 'x86')]
     [string]$Architecture = 'x64',
     [ValidateSet('nts', 'ts')]

@@ -125,8 +125,8 @@ Pin explicit versions:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 `
-  -PhpVersion 8.2.35 `
-  -NginxVersion 1.31.9
+  -PhpVersion 8.2.36 `
+  -NginxVersion 1.31.10
 ```
 
 ### Offline install
@@ -347,7 +347,7 @@ The helper only edits the managed extension block in `php.ini`, prevents duplica
 
 ## php2shell security patch (CVE-2026-109618, CVE-2026-109619)
 
-PHP **8.2.x** needs **8.2.35** or newer (see `config\php-security.psd1`). New installs default to **`-PhpVersion 8.2.35`**; selecting `8.2` still resolves to at least that floor.
+PHP **8.2.x** needs **8.2.35** or newer (see `config\php-security.psd1`). New installs default to **`-PhpVersion 8.2.36`**; selecting `8.2` still resolves to at least that floor.
 
 ### Patch an existing winginx installation
 
@@ -366,7 +366,7 @@ Use this when winginx is already on the server and you only need to update PHP u
 C:\winginx\php\php-cgi.exe -v
 ```
 
-If the version is already **8.2.35** or higher on the 8.2 line, the patch script still applies the recommended `php.ini` mitigation and exits without replacing binaries.
+If the version is already **8.2.36** or higher on the 8.2 line, the patch script still applies the recommended `php.ini` mitigation and exits without replacing binaries.
 
 **2. Get the latest installer (`main`)**
 
@@ -384,7 +384,7 @@ git pull
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\patch-php-ws2022-safe.ps1 `
   -InstallRoot C:\winginx `
-  -PhpVersion 8.2.35
+  -PhpVersion 8.2.36
 ```
 
 **4. Or run the patch script directly (online)**
@@ -402,11 +402,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\patch-php-php2shell.ps1 `
 
 **5. Run the patch (offline / air-gapped)**
 
-On a machine with internet, refresh the bundle (must include **8.2.35** or your target fixed build):
+On a machine with internet, refresh the bundle (must include **8.2.36** or your target fixed build):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\fetch-offline-packages.ps1 `
-  -PhpVersion 8.2.35
+  -PhpVersion 8.2.36
 ```
 
 Copy the `packages\` folder to the server, then:
@@ -426,7 +426,7 @@ C:\winginx\php\php-cgi.exe -v
 Invoke-WebRequest -Uri 'http://127.0.0.1/' -UseBasicParsing   # or your -HttpPort, e.g. 8080
 ```
 
-Confirm services are **Running**, `php-cgi -v` shows **8.2.35+**, and your health or app page loads.
+Confirm services are **Running**, `php-cgi -v` shows **8.2.36+**, and your health or app page loads.
 
 **What the patch does**
 
@@ -440,7 +440,7 @@ Confirm services are **Running**, `php-cgi -v` shows **8.2.35+**, and your healt
 
 | Parameter | Purpose |
 | --- | --- |
-| `-PhpVersion 8.2.35` | Target build (default **8.2.35**). |
+| `-PhpVersion 8.2.36` | Target build (default **8.2.36**). |
 | `-InstallRoot` | Winginx root if not `C:\winginx`. |
 | `-Offline` / `-PackageRoot` | Use a local ZIP instead of downloading. |
 | `-SkipIniMitigations` | Do not change `php.ini` (binary upgrade only). |
@@ -460,7 +460,7 @@ That usually means nginx is still running or something has the folder open. On *
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\stop-nginx.ps1
 powershell -ExecutionPolicy Bypass -File .\install.ps1 `
-  -PhpVersion 8.2.35 `
+  -PhpVersion 8.2.36 `
   -SkipNginxReplace
 ```
 
@@ -472,7 +472,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 `
 powershell -ExecutionPolicy Bypass -File .\scripts\stop-nginx.ps1
 Get-Process nginx, php-cgi -ErrorAction SilentlyContinue | Stop-Process -Force
 Remove-Item C:\winginx\nginx.stale-* -Recurse -Force -ErrorAction SilentlyContinue
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -PhpVersion 8.2.35
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -PhpVersion 8.2.36
 ```
 
 If access is still denied, reboot once with services stopped, then run install again.
@@ -498,8 +498,8 @@ Switches: `-SkipPatch`, `-SkipHttpTests`, `-StabilizeNginx`, `-DisableDuplicateV
 
 ## Notes
 
-- The default PHP build is **8.2.35** (php2shell fix). Pass `-PhpVersion 8.2` to follow the latest `8.2.x` from `releases.json` (never below **8.2.35**).
-- `nginx` version defaults to **1.31.9** (HTTP/2 security fixes including CVE-2026-123007). Use `-NginxVersion` to pin another build.
+- The default PHP build is **8.2.36** (php2shell fix is **8.2.35** or newer). Pass `-PhpVersion 8.2` to follow the latest `8.2.x` from `releases.json` (never below **8.2.35**).
+- `nginx` version defaults to **1.31.10** (HTTP/2 security fixes including CVE-2026-123007, fixed in **1.31.9** and later). Use `-NginxVersion` to pin another build.
 - Re-running the installer updates PHP by default and preserves **custom** nginx files under `nginx\conf\` and `nginx\conf\conf.d\` (only creates `nginx.conf` / `default.conf` when missing). Pass `-RefreshNginxMainConfig` or `-RefreshDefaultVhost` to replace those winginx templates; `-ReplaceAllNginxVhosts` restores the old destructive wipe of all `conf.d\*.conf` (avoid on production).
 - A full nginx binary replace (without `-SkipNginxReplace`) backs up and restores the entire `nginx\conf` tree so `conf.d` vhosts survive.
 - Service logs are written to `nginx\logs\*.log` and `php\logs\*.log`.
